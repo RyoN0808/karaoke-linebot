@@ -33,6 +33,17 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+repo = "RyoN0808/karaoke-linebot"   
+url = f"https://api.github.com/repos/{repo}/commits"
+
+headers = {
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github.v3+json"
+}
+
+response = requests.get(url, headers=headers)
+print(response.status_code)
+print(response.json())
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
