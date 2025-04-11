@@ -15,10 +15,6 @@ from google.cloud.vision_v1.types.image_annotator import AnnotateImageResponse
 # ==============================
 
 def _calc_area(bounding_poly) -> float:
-    """
-    バウンディングポリゴンの頂点情報から、より堅牢な方法で面積を算出する。
-    ※頂点が3点以上あることを確認し、各頂点の最小／最大のx,y値から幅と高さを算出。
-    """
     if not bounding_poly or not bounding_poly.vertices:
         return 0.0
     vertices = bounding_poly.vertices
@@ -30,62 +26,49 @@ def _calc_area(bounding_poly) -> float:
     height = max(ys) - min(ys)
     return width * height
 
-import re
-
-def _extract_score(texts):
-    score_candidates = []
-    for i, text in enumerate(texts[1:]):  # texts[0] は全文
-        desc = text.description.strip()
-        vertices = text.bounding_poly.vertices
-        width = abs(vertices[1].x - vertices[0].x)
-        height = abs(vertices[2].y - vertices[1].y)
-        area = width * height
-
-        # スコアっぽい数字を検出（例: 90.499）
-        if re.match(r'^\d{2,3}\.\d{1,3}$', desc):
-            # 「点」が近くになくてもとりあえず候補に
-            score_candidates.append({
-                "text": desc,
-                "area": area,
-                "priority": 0  # 後で調整するための重み
-            })
-
-            # 「点」が近くにあれば優先度アップ
-            near_texts = texts[max(0, i - 2): i + 3]
-            if any("点" in t.description for t in near_texts):
-                score_candidates[-1]["priority"] += 1
-
-    if not score_candidates:
+def _extract_score(texts) -> Optional[float]:
+    """
+    OCRテキストからスコア（例：92.170）を推定。
+    「点」が近くにある場合を優先。
+    """
+    if not texts:
         return None
 
-    # 優先度と面積でソート（priority → area）
-    best = max(score_candidates, key=lambda x: (x["priority"], x["area"]))
-    return float(best["text"])
+    candidates = []
 
-# ==============================
-# 項目ごとのOCR切り出し
-# ==============================
-SCORE_REGION = (100, 400, 500, 500)
-SONG_NAME_REGION = (600, 400, 1000, 450)
-ARTIST_NAME_REGION = (600, 450, 1000, 500)
+    for i, annotation in enumerate(texts[1:]):  # texts[0] は全文
+        desc = annotation.description.strip()
 
-def crop_region(image_path, region):
-    img = cv2.imread(image_path)
-    if img is None:
-        logging.error(f"画像が見つかりません: {image_path}")
+        # 数値形式（例：92.170）を持つものだけ対象
+        if not re.match(r'^\d{2,3}[.,]\d{1,3}$', desc):
+            continue
+
+        # 周囲テキストを確認
+        near_texts = texts[max(0, i): i + 4]
+        context = " ".join(t.description for t in near_texts)
+
+        # 「点」が近くにある場合に優先度アップ
+        priority = 1 if "点" in context else 0
+
+        try:
+            score = float(desc.replace(",", "."))
+            candidates.append({"score": score, "priority": priority})
+        except ValueError:
+            continue
+
+    if not candidates:
+        logging.warning("❗ スコア候補が見つかりませんでした")
         return None
-    x1, y1, x2, y2 = region
-    cropped = img[y1:y2, x1:x2]
-    base, ext = os.path.splitext(image_path)
-    temp_path = f"{base}_crop_{x1}_{y1}{ext}"
-    cv2.imwrite(temp_path, cropped)
-    return temp_path
 
-def crop_regions_for_fields(image_path):
-    score_crop = crop_region(image_path, SCORE_REGION)
-    song_crop = crop_region(image_path, SONG_NAME_REGION)
-    artist_crop = crop_region(image_path, ARTIST_NAME_REGION)
-    return score_crop, song_crop, artist_crop
+    # 優先度 → 数値の大きさ で優先ソート
+    best = max(candidates, key=lambda x: (x["priority"], x["score"]))
+    return best["score"]
+
+
+
+# ==============================
+# OCR 実行
+# ==============================
 
 def ocr_image(image_path, client):
     with io.open(image_path, 'rb') as image_file:
@@ -93,14 +76,13 @@ def ocr_image(image_path, client):
 
     image = vision.Image(content=content)
     response = client.text_detection(image=image)
-    texts = response.text_annotations
-    return texts[0].description if texts else ""
+    return response
 
 def extract_text_from_image(image_path):
     credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if not credentials_path:
         logging.error("GOOGLE_APPLICATION_CREDENTIALS 環境変数が設定されていません")
-        return ""
+        return None
     credentials = service_account.Credentials.from_service_account_file(credentials_path)
     client = vision.ImageAnnotatorClient(credentials=credentials)
     return ocr_image(image_path, client)
@@ -128,11 +110,8 @@ def set_user_correction_step(user_id, field):
 
 def get_user_correction_step(user_id):
     from supabase_client import supabase
-    resp = supabase.table("corrections").select("field").eq("user_id", user_id).limit(1).execute()
-    if resp.data:
-        return resp.data[0].get("field")
-    return None
-
+    resp = supabase.table("corrections").select("field").eq("user_id", user_id).single().execute()
+    return resp.data.get("field") if resp.data else None
 
 def clear_user_correction_step(user_id):
     from supabase_client import supabase
@@ -140,7 +119,6 @@ def clear_user_correction_step(user_id):
 
 def parse_correction_command(text: str):
     result = {}
-    # scoreの正規表現をより柔軟に変更（例：1桁以上、少数部も柔軟にマッチ）
     patterns = {
         "score": r"score[:：]\s*(\d+[.,]?\d+)",
         "song_name": r"(?:曲名|song)[:：]\s*(\S+)",
