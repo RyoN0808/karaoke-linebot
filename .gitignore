@@ -1,8 +1,18 @@
+# Python
 __pycache__/
-*.pyc
-.vscode/
-.idea/
+*.py[cod]
+*.egg-info/
+venv/
 .env
-tmp/
-*.log
+
+# macOS
 .DS_Store
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Images / cache
+/tmp/
