@@ -32,6 +32,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -71,7 +72,6 @@ def handle_image(event):
         image = vision.Image(content=content)
         response = client.text_detection(image=image)
         texts = response.text_annotations  # ここで明示的に text_annotations だけ渡す
-
         result_text = texts[0].description if texts else ""
         score = _extract_score(texts)  # 二重参照回避済み
 
