@@ -57,3 +57,4 @@ yarl==1.18.3
 google-cloud-vision
 gunicorn
 requests
+opencv-python-headless
