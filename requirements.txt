@@ -58,3 +58,4 @@ google-cloud-vision
 gunicorn
 requests
 opencv-python-headless
+Pillow
