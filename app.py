@@ -74,10 +74,8 @@ def handle_image(event):
         with open(image_path, "wb") as f:
             for chunk in message_content.iter_content():
                 f.write(chunk)
-
-        credentials = service_account.Credentials.from_service_account_file(
-            os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        )
+        credentials_info = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
+        credentials = service_account.Credentials.from_service_account_info(credentials_info)
         client = vision.ImageAnnotatorClient(credentials=credentials)
 
         with open(image_path, "rb") as image_file:
