@@ -48,7 +48,7 @@ def _extract_score(texts) -> Optional[float]:
         context = " ".join(t.description for t in near_texts)
 
         # 「点」が近くにある場合に優先度アップ
-        priority = 1 if "点" in context else 0
+        # priority = 1 if "点" in context else 0
 
         try:
             score = float(desc.replace(",", "."))
