@@ -175,7 +175,8 @@ def handle_text(event):
 
         if is_correction_command(text):
             clear_user_correction_step(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=get_correction_menu()))
+            line_bot_api.reply_message(event.reply_token, get_correction_menu())
+
             return
 
         if is_correction_field_selection(text):
