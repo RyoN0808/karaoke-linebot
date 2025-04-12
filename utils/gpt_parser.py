@@ -6,8 +6,6 @@ import json
 
 # .env 読み込み（忘れがち！）
 load_dotenv()
-print("✅ OPENAI_API_KEY:", os.getenv("OPENAI_API_KEY"))
-
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def parse_text_with_gpt(text: str) -> dict:
