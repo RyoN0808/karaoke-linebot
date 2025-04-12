@@ -9,7 +9,7 @@ import numpy as np
 from google.cloud import vision
 from google.oauth2 import service_account
 from google.cloud.vision_v1.types.image_annotator import AnnotateImageResponse
-
+from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 # ==============================
 # スコア抽出処理
 # ==============================
@@ -94,8 +94,16 @@ def extract_text_from_image(image_path):
 def is_correction_command(text: str) -> bool:
     return text == "修正" or text.lower() == "fix"
 
-def get_correction_menu() -> str:
-    return "🔧 修正したい項目を選んでください：\n[スコア] [曲名] [アーティスト] [コメント]"
+def get_correction_menu() -> TextSendMessage:
+    return TextSendMessage(
+        text="🔧 修正したい項目を選んでください：",
+        quick_reply=QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="スコア", text="スコア")),
+            QuickReplyButton(action=MessageAction(label="曲名", text="曲名")),
+            QuickReplyButton(action=MessageAction(label="アーティスト", text="アーティスト")),
+            QuickReplyButton(action=MessageAction(label="コメント", text="コメント")),
+        ])
+    )
 
 def is_correction_field_selection(text: str) -> bool:
     return text in ["スコア", "曲名", "アーティスト", "コメント"]
