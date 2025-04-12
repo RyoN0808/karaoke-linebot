@@ -25,6 +25,7 @@ from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
 import requests
+import json
 
 
 load_dotenv()
