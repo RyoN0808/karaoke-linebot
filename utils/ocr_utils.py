@@ -101,7 +101,6 @@ def get_correction_menu() -> TextSendMessage:
             QuickReplyButton(action=MessageAction(label="スコア", text="スコア")),
             QuickReplyButton(action=MessageAction(label="曲名", text="曲名")),
             QuickReplyButton(action=MessageAction(label="アーティスト", text="アーティスト")),
-            QuickReplyButton(action=MessageAction(label="コメント", text="コメント")),
         ])
     )
 
