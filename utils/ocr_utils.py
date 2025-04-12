@@ -26,31 +26,33 @@ def _calc_area(bounding_poly) -> float:
     height = max(ys) - min(ys)
     return width * height
 
-ddef _extract_score(texts) -> Optional[float]:
+def _extract_score(texts) -> Optional[float]:
+    """
+    OCRテキストからスコア（例：92.170）を推定。
+    「点」が近くにある場合を優先。
+    """
     if not texts:
         return None
 
     candidates = []
-    NG_WORDS = ["全国平均", "平均", "ビブラート", "分析", "レポート"]
 
-    for i, annotation in enumerate(texts[1:]):
+    for i, annotation in enumerate(texts[1:]):  # texts[0] は全文
         desc = annotation.description.strip()
+
+        # 数値形式（例：92.170）を持つものだけ対象
         if not re.match(r'^\d{2,3}[.,]\d{1,3}$', desc):
             continue
 
+        # 周囲テキストを確認
         near_texts = texts[max(0, i): i + 4]
         context = " ".join(t.description for t in near_texts)
 
-        # NGワードを含むものを除外
-        if any(ng in context for ng in NG_WORDS):
-            continue
-
+        # 「点」が近くにある場合に優先度アップ
         priority = 1 if "点" in context else 0
-        area = _calc_area(annotation.bounding_poly)
 
         try:
             score = float(desc.replace(",", "."))
-            candidates.append({"score": score, "priority": priority, "area": area})
+            candidates.append({"score": score, "priority": priority})
         except ValueError:
             continue
 
@@ -58,8 +60,11 @@ ddef _extract_score(texts) -> Optional[float]:
         logging.warning("❗ スコア候補が見つかりませんでした")
         return None
 
-    best = max(candidates, key=lambda x: (x["priority"], x["area"], x["score"]))
+    # 優先度 → 数値の大きさ で優先ソート
+    best = max(candidates, key=lambda x: (x["priority"], x["score"]))
     return best["score"]
+
+
 
 # ==============================
 # OCR 実行
