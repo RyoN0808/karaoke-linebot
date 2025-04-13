@@ -100,10 +100,11 @@ def handle_image(event):
             user_name = profile.display_name or "unknown"
             now_iso = datetime.utcnow().isoformat()
 
-            user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).single().execute()
+            user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).maybe_single().execute()
             current_data = user_resp.data or {}
             current_count = current_data.get("score_count", 0)
             user_code = current_data.get("user_code") or generate_unique_user_code()
+
 
             supabase.table("users").upsert({
                 "id": user_id,
