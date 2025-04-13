@@ -27,7 +27,6 @@ from utils.user_code import generate_unique_user_code
 import requests
 import json
 
-
 load_dotenv()
 app = Flask(__name__)
 
@@ -35,25 +34,13 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-repo = "RyoN0808/karaoke-linebot"   
-url = f"https://api.github.com/repos/{repo}/commits"
-
-headers = {
-    "Authorization": f"token {GITHUB_TOKEN}",
-    "Accept": "application/vnd.github.v3+json"
-}
-
-response = requests.get(url, headers=headers)
-print(response.status_code)
-print(response.json())
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
-    logging.debug("💡 Signature: %s", signature)
-    logging.debug("💡 Body: %s", body)
+    logging.debug("\U0001F4A1 Signature: %s", signature)
+    logging.debug("\U0001F4A1 Body: %s", body)
 
     try:
         handler.handle(body, signature)
@@ -75,6 +62,7 @@ def handle_image(event):
         with open(image_path, "wb") as f:
             for chunk in message_content.iter_content():
                 f.write(chunk)
+
         credentials_info = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
         client = vision.ImageAnnotatorClient(credentials=credentials)
@@ -83,9 +71,9 @@ def handle_image(event):
             content = image_file.read()
         image = vision.Image(content=content)
         response = client.text_detection(image=image)
-        texts = response.text_annotations  # ここで明示的に text_annotations だけ渡す
+        texts = response.text_annotations
         result_text = texts[0].description if texts else ""
-        score = _extract_score(texts)  # 二重参照回避済み
+        score = _extract_score(texts)
 
         structured_data = parse_text_with_gpt(result_text)
         parsed = {
@@ -93,7 +81,7 @@ def handle_image(event):
             "song_name": structured_data.get("song_name"),
             "artist_name": structured_data.get("artist_name"),
         }
-        logging.debug("🔎 パース結果: %s", parsed)
+        logging.debug("\U0001F50E パース結果: %s", parsed)
 
         if parsed["score"] is not None:
             profile = line_bot_api.get_profile(user_id)
@@ -101,10 +89,9 @@ def handle_image(event):
             now_iso = datetime.utcnow().isoformat()
 
             user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).maybe_single().execute()
-            current_data = user_resp.data or {}
+            current_data = (user_resp.data if user_resp else {})
             current_count = current_data.get("score_count", 0)
             user_code = current_data.get("user_code") or generate_unique_user_code()
-
 
             supabase.table("users").upsert({
                 "id": user_id,
@@ -164,7 +151,7 @@ def handle_text(event):
             score_count = user_info.data["score_count"] if user_info.data else 0
 
             msg = (
-                "📊 あなたの成績\n"
+                "\U0001F4CA あなたの成績\n"
                 f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
@@ -176,7 +163,6 @@ def handle_text(event):
         if is_correction_command(text):
             clear_user_correction_step(user_id)
             line_bot_api.reply_message(event.reply_token, get_correction_menu())
-
             return
 
         if is_correction_field_selection(text):
