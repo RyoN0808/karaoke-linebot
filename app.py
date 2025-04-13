@@ -89,9 +89,13 @@ def handle_image(event):
             now_iso = datetime.utcnow().isoformat()
 
             user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).maybe_single().execute()
-            current_data = (user_resp.data if user_resp else {})
+
+            # 安全に data を取得（user_resp や user_resp.data が None でもOK）
+            current_data = (user_resp.data if user_resp and user_resp.data else {})
+            
             current_count = current_data.get("score_count", 0)
             user_code = current_data.get("user_code") or generate_unique_user_code()
+
 
             supabase.table("users").upsert({
                 "id": user_id,
