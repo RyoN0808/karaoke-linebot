@@ -38,8 +38,11 @@ handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
 @app.route("/create-richmenu", methods=["GET"])
 def create_richmenu():
-    richmenu_id = create_camera_richmenu()
-    return f"リッチメニューを作成しました: {richmenu_id}"
+    try:
+        rich_menu_id = create_and_link_rich_menu()
+        return f"✅ リッチメニュー作成成功！ID: {rich_menu_id}"
+    except Exception as e:
+        return f"❌ リッチメニュー作成に失敗しました: {str(e)}", 500
 
 
 @app.route("/webhook", methods=["POST"])
