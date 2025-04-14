@@ -2,6 +2,7 @@ import os
 import re
 import io
 import logging
+from utils.richmenu import create_camera_richmenu
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -34,6 +35,12 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+
+@app.route("/create-richmenu", methods=["GET"])
+def create_richmenu():
+    richmenu_id = create_camera_richmenu()
+    return f"リッチメニューを作成しました: {richmenu_id}"
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
