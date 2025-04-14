@@ -48,11 +48,11 @@ def _extract_score(texts) -> Optional[float]:
         context = " ".join(t.description for t in near_texts)
 
         # 「点」が近くにある場合に優先度アップ
-        # priority = 1 if "点" in context else 0
+        priority = 1 if "点" in context else 0
 
         try:
             score = float(desc.replace(",", "."))
-            candidates.append({"score": score, }) #"priority": priority
+            candidates.append({"score": score, "priority": priority})
         except ValueError:
             continue
 
@@ -61,7 +61,7 @@ def _extract_score(texts) -> Optional[float]:
         return None
 
     # 優先度 → 数値の大きさ で優先ソート
-   # best = max(candidates, key=lambda x: (x["priority"], x["score"]))
+    best = max(candidates, key=lambda x: (x["priority"], x["score"]))
     return best["score"]
 
 
