@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-from utils.richmenu import create_camera_richmenu
+from utils.richmenu import create_and_link_rich_menu
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
