@@ -7,7 +7,7 @@ def generate_user_code(length=8):
 
 def generate_unique_user_code():
     while True:
-        code = generate_user_code()  # ← ここが定義されていないとエラーになる
+        code = generate_user_code()
         result = supabase.table("users").select("id").eq("user_code", code).execute()
         if not result.data:
             return code
