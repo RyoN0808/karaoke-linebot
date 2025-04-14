@@ -12,6 +12,3 @@ key = os.getenv("SUPABASE_KEY")
 # Supabase クライアント生成
 supabase = create_client(url, key)
 
-print("🔗 Supabase URL:", url)
-print("🔑 Supabase KEY:", key[:10] + "...")
-
