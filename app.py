@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-from utils.richmenu import create_and_link_rich_menu
+
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -27,6 +27,7 @@ from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
 import requests
 import json
+from utils.richmenu import create_and_link_rich_menu
 
 load_dotenv()
 app = Flask(__name__)
@@ -40,7 +41,7 @@ handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 def create_richmenu():
     try:
         rich_menu_id = create_and_link_rich_menu()
-        return f"✅ リッチメニュー作成成功！ID: {rich_menu_id}"
+        return f"✅ リッチメニュー作成成功｜ID: {rich_menu_id}"
     except Exception as e:
         return f"❌ リッチメニュー作成に失敗しました: {str(e)}", 500
 
