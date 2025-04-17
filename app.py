@@ -155,7 +155,7 @@ def handle_text(event):
         user_id = event.source.user_id
         text = event.message.text.strip()
 
-        if text == "評価見せて":
+        if text == "成績確認":
             resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
             latest_score = score_list[0] if score_list else None
