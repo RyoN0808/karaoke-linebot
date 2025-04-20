@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-
+from utils.rating import get_rating_from_ema
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -100,13 +100,9 @@ def handle_image(event):
             now_iso = datetime.utcnow().isoformat()
 
             user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).maybe_single().execute()
-
-            # 安全に data を取得（user_resp や user_resp.data が None でもOK）
             current_data = (user_resp.data if user_resp and user_resp.data else {})
-            
             current_count = current_data.get("score_count", 0)
             user_code = current_data.get("user_code") or generate_unique_user_code()
-
 
             supabase.table("users").upsert({
                 "id": user_id,
@@ -124,6 +120,16 @@ def handle_image(event):
                 "comment": None,
                 "created_at": now_iso
             }).execute()
+
+            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
+            scores = [s["score"] for s in resp.data if s.get("score") is not None]
+            ema = calculate_ema(scores) if len(scores) >= 5 else None
+            rating = get_rating_from_ema(ema) if ema is not None else None
+
+            supabase.table("users").update({
+                "ema_score": ema,
+                "ema_rating": rating
+            }).eq("id", user_id).execute()
 
             reply_msg = (
                 f"✅ スコア登録完了！\n"
@@ -148,6 +154,7 @@ def handle_image(event):
                 os.remove(image_path)
         except Exception:
             logging.warning("❗ 一時画像ファイルの削除に失敗しました")
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
