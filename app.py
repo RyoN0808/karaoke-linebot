@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-from utils.rating import get_rating_from_ema
+import json
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, ImageMessage, TextSendMessage,
+    MessageEvent, TextMessage, ImageMessage, TextSendMessage
 )
 
 from supabase_client import supabase
@@ -22,21 +22,25 @@ from utils.ocr_utils import (
     _extract_score
 )
 from utils.ema import calculate_ema
+from utils.rating import get_rating_from_ema
 from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
-import requests
-import json
 from utils.richmenu import create_and_link_rich_menu
 
+# ==============================
+# App初期化
+# ==============================
 load_dotenv()
 app = Flask(__name__)
-
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
+# ==============================
+# リッチメニュー作成エンドポイント
+# ==============================
 @app.route("/create-richmenu", methods=["GET"])
 def create_richmenu():
     try:
@@ -45,7 +49,9 @@ def create_richmenu():
     except Exception as e:
         return f"❌ リッチメニュー作成に失敗しました: {str(e)}", 500
 
-
+# ==============================
+# LINE Webhookエンドポイント
+# ==============================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
@@ -64,6 +70,9 @@ def webhook():
 
     return "OK"
 
+# ==============================
+# 画像メッセージの処理
+# ==============================
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     try:
@@ -121,10 +130,15 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
+            # EMA・レーティングの更新
+            resp = supabase.table("scores") \
+                .select("score, created_at") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(30).execute()
             scores = [s["score"] for s in resp.data if s.get("score") is not None]
-            ema = calculate_ema(scores) if len(scores) >= 5 else None
-            rating = get_rating_from_ema(ema) if ema is not None else None
+            ema = calculate_ema(scores)
+            rating = get_rating_from_ema(ema)
 
             supabase.table("users").update({
                 "ema_score": ema,
@@ -155,76 +169,64 @@ def handle_image(event):
         except Exception:
             logging.warning("❗ 一時画像ファイルの削除に失敗しました")
 
-
+# ==============================
+# テキストメッセージの処理
+# ==============================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     try:
         user_id = event.source.user_id
         text = event.message.text.strip()
 
-        # ✅ 名前変更トリガー
+        # 名前変更トリガー
         if text == "名前変更":
-            supabase.table("name_change_requests").upsert({
-                "user_id": user_id,
-                "waiting": True
-            }).execute()
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="📝 新しい名前を入力してください")
-            )
+            supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 新しい名前を入力してください"))
             return
 
-        # ✅ 名前変更ステータスチェック
-        name_req = supabase.table("name_change_requests").select("waiting") \
-            .eq("user_id", user_id).maybe_single().execute()
-        if name_req.data and name_req.data.get("waiting"):
+        # 名前変更状態チェック
+        name_req = supabase.table("name_change_requests").select("*").eq("user_id", user_id).maybe_single().execute()
+        if name_req and name_req.data and name_req.data.get("waiting"):
             new_name = text
             supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
             supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！")
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！"))
             return
 
-        # ✅ 成績確認（EMA + レーティング含む）
+        # 成績確認
         if text == "成績確認":
-            resp = supabase.table("scores").select("score, created_at") \
-                .eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
+            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
             latest_score = score_list[0] if score_list else None
             max_score = max(score_list) if score_list else None
             ema_score = calculate_ema(score_list) if len(score_list) >= 5 else None
-            rating = get_rating_from_ema(ema_score) if ema_score else None
+            rating = get_rating_from_ema(ema_score) if ema_score else "---"
 
-            user_info = supabase.table("users").select("score_count") \
-                .eq("id", user_id).single().execute()
+            user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
             score_count = user_info.data["score_count"] if user_info.data else 0
 
             msg = (
-                "📊 あなたの成績\n"
+                "\U0001F4CA あなたの成績\n"
                 f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
                 f"・EMA評価スコア: {ema_score or '---'}\n"
-                f"・レーティング: {rating or '---'}"
+                f"・レーティング: {rating}"
             )
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
 
-        # ✅ 修正メニュー
+        # 修正コマンド
         if is_correction_command(text):
             clear_user_correction_step(user_id)
             line_bot_api.reply_message(event.reply_token, get_correction_menu())
             return
 
-        # ✅ 修正項目選択（スコア・曲名など）
         if is_correction_field_selection(text):
             set_user_correction_step(user_id, text)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
             return
 
-        # ✅ 修正値の入力・反映
         field = get_user_correction_step(user_id)
         if field:
             if field == "スコア":
@@ -235,16 +237,12 @@ def handle_text(event):
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
                     return
 
-            latest = supabase.table("scores").select("id") \
-                .eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+            latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
             if latest.data:
                 score_id = latest.data[0]["id"]
-                supabase.table("scores").update({get_supabase_field(field): text}) \
-                    .eq("id", score_id).execute()
-
+                supabase.table("scores").update({get_supabase_field(field): text}).eq("id", score_id).execute()
                 updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
                 clear_user_correction_step(user_id)
-
                 updated_data = updated.data
                 msg = (
                     f"✅ 修正完了！\n"
@@ -259,6 +257,9 @@ def handle_text(event):
         logging.exception("❌ テキスト処理中にエラーが発生しました")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ エラーが発生しました。"))
 
+# ==============================
+# ヘルスチェック用
+# ==============================
 @app.route("/", methods=["GET"])
 def index():
     return "✅ Flask x LINE Bot is running!"
