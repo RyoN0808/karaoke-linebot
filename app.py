@@ -155,6 +155,35 @@ def handle_text(event):
         user_id = event.source.user_id
         text = event.message.text.strip()
 
+        
+        # ✅ 「名前変更」のトリガー
+        if text == "名前変更":
+            supabase.table("name_change_requests").upsert({
+                "user_id": user_id,
+                "waiting": True
+            }).execute()
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="📝 新しい名前を入力してください")
+            )
+            return
+
+        # ✅ 入力が名前変更待ち状態なら、それを更新として扱う
+        name_req = supabase.table("name_change_requests").select("waiting").eq("user_id", user_id).maybe_single().execute()
+        if name_req.data and name_req.data.get("waiting"):
+            new_name = text
+            # ユーザー名を更新
+            supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
+            # ステータス解除
+            supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！")
+            )
+            return
+
         if text == "成績確認":
             resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
