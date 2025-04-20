@@ -162,70 +162,69 @@ def handle_text(event):
         user_id = event.source.user_id
         text = event.message.text.strip()
 
-        
-        # ✅ 「名前変更」のトリガー
+        # ✅ 名前変更トリガー
         if text == "名前変更":
             supabase.table("name_change_requests").upsert({
                 "user_id": user_id,
                 "waiting": True
             }).execute()
-
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="📝 新しい名前を入力してください")
             )
             return
 
-        # ✅ 入力が名前変更待ち状態なら、それを更新として扱う
-        name_req = supabase.table("name_change_requests").select("waiting").eq("user_id", user_id).maybe_single().execute()
+        # ✅ 名前変更ステータスチェック
+        name_req = supabase.table("name_change_requests").select("waiting") \
+            .eq("user_id", user_id).maybe_single().execute()
         if name_req.data and name_req.data.get("waiting"):
             new_name = text
-            # ユーザー名を更新
             supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
-            # ステータス解除
             supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
-
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！")
             )
             return
 
-            if text == "成績確認":
-        resp = supabase.table("scores").select("score, created_at") \
-            .eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
-        score_list = [s["score"] for s in resp.data if s.get("score") is not None]
-        latest_score = score_list[0] if score_list else None
-        max_score = max(score_list) if score_list else None
-        ema_score = calculate_ema(score_list) if len(score_list) >= 5 else None
+        # ✅ 成績確認（EMA + レーティング含む）
+        if text == "成績確認":
+            resp = supabase.table("scores").select("score, created_at") \
+                .eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
+            score_list = [s["score"] for s in resp.data if s.get("score") is not None]
+            latest_score = score_list[0] if score_list else None
+            max_score = max(score_list) if score_list else None
+            ema_score = calculate_ema(score_list) if len(score_list) >= 5 else None
+            rating = get_rating_from_ema(ema_score) if ema_score else None
 
-        rating = get_rating_from_ema(ema_score) if ema_score else None
+            user_info = supabase.table("users").select("score_count") \
+                .eq("id", user_id).single().execute()
+            score_count = user_info.data["score_count"] if user_info.data else 0
 
-        user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
-        score_count = user_info.data["score_count"] if user_info.data else 0
+            msg = (
+                "📊 あなたの成績\n"
+                f"・登録回数: {score_count} 回\n"
+                f"・最新スコア: {latest_score or '---'}\n"
+                f"・最高スコア: {max_score or '---'}\n"
+                f"・EMA評価スコア: {ema_score or '---'}\n"
+                f"・レーティング: {rating or '---'}"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+            return
 
-        msg = (
-            "📊 あなたの成績\n"
-            f"・登録回数: {score_count} 回\n"
-            f"・最新スコア: {latest_score or '---'}\n"
-            f"・最高スコア: {max_score or '---'}\n"
-            f"・EMA評価スコア: {ema_score or '---'}\n"
-            f"・レーティング: {rating or '---'}"
-        )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
-        return
-
-
+        # ✅ 修正メニュー
         if is_correction_command(text):
             clear_user_correction_step(user_id)
             line_bot_api.reply_message(event.reply_token, get_correction_menu())
             return
 
+        # ✅ 修正項目選択（スコア・曲名など）
         if is_correction_field_selection(text):
             set_user_correction_step(user_id, text)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
             return
 
+        # ✅ 修正値の入力・反映
         field = get_user_correction_step(user_id)
         if field:
             if field == "スコア":
@@ -236,13 +235,16 @@ def handle_text(event):
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
                     return
 
-            latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+            latest = supabase.table("scores").select("id") \
+                .eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
             if latest.data:
                 score_id = latest.data[0]["id"]
-                supabase.table("scores").update({get_supabase_field(field): text}).eq("id", score_id).execute()
+                supabase.table("scores").update({get_supabase_field(field): text}) \
+                    .eq("id", score_id).execute()
 
                 updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
                 clear_user_correction_step(user_id)
+
                 updated_data = updated.data
                 msg = (
                     f"✅ 修正完了！\n"
