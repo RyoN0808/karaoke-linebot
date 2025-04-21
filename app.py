@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-from utils.rating import get_rating_from_ema
+from utils.rating import get_rating_from_wma
 from utils.rating_predictor import predict_rating_change  # ← 追加
 from datetime import datetime
 from flask import Flask, request, abort
@@ -22,7 +22,7 @@ from utils.ocr_utils import (
     get_user_correction_step, clear_user_correction_step,
     _extract_score
 )
-from utils.ema import calculate_ema
+from utils.wma import calculate_wma
 from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
@@ -139,12 +139,12 @@ def handle_image(event):
                 .order("created_at", desc=True) \
                 .limit(30).execute()
             scores = [s["score"] for s in resp.data if s.get("score") is not None]
-            ema = calculate_ema(scores)
-            rating = get_rating_from_ema(ema)
+            wma = calculate_wma(scores)
+            rating = get_rating_from_wma(wma)
 
             supabase.table("users").update({
-                "ema_score": ema,
-                "ema_rating": rating
+                "wma_score": wma,
+                "wma_rating": rating
             }).eq("id", user_id).execute()
 
             reply_msg = (
@@ -200,8 +200,8 @@ def handle_text(event):
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
             latest_score = score_list[0] if score_list else None
             max_score = max(score_list) if score_list else None
-            ema_score = calculate_ema(score_list, alpha=0.1) if len(score_list) >= 5 else None
-            rating_info = predict_rating_change(score_list) if ema_score is not None else {}
+            wma_score = calculate_wma(score_list, alpha=0.1) if len(score_list) >= 5 else None
+            rating_info = predict_rating_change(score_list) if wma_score is not None else {}
 
             user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
             score_count = user_info.data["score_count"] if user_info.data else 0
@@ -211,7 +211,7 @@ def handle_text(event):
                 f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・EMA評価スコア: {round(ema_score, 3) if ema_score is not None else '---'}\n"
+                f"・EMA評価スコア: {round(wma_score, 3) if wma_score is not None else '---'}\n"
                 f"・レーティング: {rating_info.get('current_rating', '---')}\n"
             )
 
