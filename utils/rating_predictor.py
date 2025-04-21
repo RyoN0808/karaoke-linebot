@@ -1,10 +1,13 @@
 # utils/rating_predictor.py
-from utils.wma import calculate_wma
-from utils.rating import get_rating_from_wma
+
+from utils.rating import get_rating_from_score  # 関数名に合わせて
 
 def predict_rating_change(scores: list[float], step: float = 0.1, max_try: int = 100):
-    current_wma = calculate_wma(scores)
-    current_rating = get_rating_from_wma(current_wma)
+    if not scores:
+        return {}
+
+    current_avg = round(sum(scores) / len(scores), 3)
+    current_rating = get_rating_from_score(current_avg)
 
     # レーティングの順序としきい値
     rating_levels = ["SS", "SA", "S", "A", "B"]
@@ -16,31 +19,25 @@ def predict_rating_change(scores: list[float], step: float = 0.1, max_try: int =
         "B": 70
     }
 
-    def find_target_rating(score):
-        for rating in rating_levels:
-            if score >= rating_thresholds[rating]:
-                return rating
-        return "B"
-
     # 上に上がれるかチェック
     next_up_score = None
-    for i in range(1000):
-        new_scores = scores + [rating_thresholds[current_rating] + i * step]
-        new_wma = calculate_wma(new_scores)
-        new_rating = get_rating_from_wma(new_wma)
+    for i in range(max_try):
+        new_score = rating_thresholds[current_rating] + i * step
+        new_scores = scores + [new_score]
+        new_avg = sum(new_scores) / len(new_scores)
+        new_rating = get_rating_from_score(new_avg)
         if rating_levels.index(new_rating) < rating_levels.index(current_rating):
-            next_up_score = round(new_scores[-1], 3)
+            next_up_score = round(new_score, 3)
             break
 
     # 下がるケース（極端な低スコアでチェック）
     down_scores = scores + [0.0]
-    down_wma = calculate_wma(down_scores)
-    down_rating = get_rating_from_wma(down_wma)
+    down_avg = sum(down_scores) / len(down_scores)
+    down_rating = get_rating_from_score(down_avg)
 
     return {
-        "current_wma": round(current_wma, 3),
+        "current_avg": round(current_avg, 3),
         "current_rating": current_rating,
         "next_up_score": next_up_score,
-        "next_rating": get_rating_from_wma(current_wma + 0.1),
-        "can_downgrade": down_rating != current_rating
+        "next_rating": get_rating_from_score(current_avg_score),
     }
