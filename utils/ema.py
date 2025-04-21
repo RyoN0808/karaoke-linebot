@@ -1,4 +1,4 @@
-def calculate_ema(scores, alpha=0.3):
+def calculate_ema(scores, alpha=0.1):
     ema = None
     for s in scores:
         if ema is None:
