@@ -2,7 +2,7 @@ import os
 import re
 import io
 import logging
-from utils.rating import get_rating_from_wma
+from utils.rating import get_rating_from_score
 from utils.rating_predictor import predict_rating_change  # ← 追加
 from datetime import datetime
 from flask import Flask, request, abort
@@ -22,7 +22,6 @@ from utils.ocr_utils import (
     get_user_correction_step, clear_user_correction_step,
     _extract_score
 )
-from utils.wma import calculate_wma
 from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
@@ -200,8 +199,8 @@ def handle_text(event):
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
             latest_score = score_list[0] if score_list else None
             max_score = max(score_list) if score_list else None
-            wma_score = calculate_wma(score_list) if len(score_list) >= 5 else None
-            rating_info = predict_rating_change(score_list) if wma_score is not None else {}
+            avg_score = round(sum(score_list) / len(score_list), 3) if len(score_list) >= 5 else None
+            rating_info = predict_rating_change(score_list) if avg_score is not None else {}
 
             user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
             score_count = user_info.data["score_count"] if user_info.data else 0
@@ -211,7 +210,7 @@ def handle_text(event):
                 f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・EMA評価スコア: {round(wma_score, 3) if wma_score is not None else '---'}\n"
+                f"・平均スコア（最新30曲）: {avg_score or '---'}\n"
                 f"・レーティング: {rating_info.get('current_rating', '---')}\n"
             )
 
@@ -219,7 +218,7 @@ def handle_text(event):
                 msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
             elif (
                 rating_info.get("can_downgrade") and 
-                rating_info.get("next_down_score") is not None and
+                rating_info.get("next_down_score") and
                 rating_info["next_down_score"] <= 100 and 
                 rating_info["next_down_score"] >= 75
             ):
