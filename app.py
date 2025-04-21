@@ -221,7 +221,6 @@ def handle_text(event):
             elif rating_info.get("can_downgrade"):
                 msg += "・注意！低いスコアが続くとランクが下がる可能性があります。\n"
 
-
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
