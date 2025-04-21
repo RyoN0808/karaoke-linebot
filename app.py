@@ -200,7 +200,7 @@ def handle_text(event):
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
             latest_score = score_list[0] if score_list else None
             max_score = max(score_list) if score_list else None
-            wma_score = calculate_wma(score_list, alpha=0.1) if len(score_list) >= 5 else None
+            wma_score = calculate_wma(score_list) if len(score_list) >= 5 else None
             rating_info = predict_rating_change(score_list) if wma_score is not None else {}
 
             user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
