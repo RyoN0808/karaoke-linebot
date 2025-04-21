@@ -195,7 +195,6 @@ def handle_text(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！"))
             return
 
-        # 成績確認
         if text == "成績確認":
             resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
@@ -209,17 +208,21 @@ def handle_text(event):
 
             msg = (
                 "\U0001F4CA あなたの成績\n"
-                f"・登録回数: {score_count} 回\n"
+                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
+                f"・EMA評価スコア: {round(ema_score, 3) if ema_score is not None else '---'}\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・EMA評価スコア: {ema_score or '---'}\n"
-                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
+                f"・登録回数: {score_count} 回\n"
             )
 
             if "next_up_score" in rating_info and rating_info["next_up_score"] <= 100:
                 msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
-            elif rating_info.get("can_downgrade"):
-                msg += "・注意！低いスコアが続くとランクが下がる可能性があります。\n"
+            elif (
+                rating_info.get("can_downgrade") and 
+                rating_info.get("next_down_score") <= 100 and 
+                rating_info.get("next_down_score") >= 75
+            ):
+                msg += f"・注意！{rating_info['next_down_score']} 点未満でランクが下がる可能性があります。\n"
 
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
