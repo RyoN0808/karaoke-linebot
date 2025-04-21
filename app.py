@@ -141,7 +141,6 @@ def handle_image(event):
             if len(scores) >= 5:
                 avg_score = round(sum(scores) / len(scores), 3)
                 rating = get_rating_from_score(avg_score)
-
                 supabase.table("users").update({
                     "average_score": avg_score,
                     "rating": rating
