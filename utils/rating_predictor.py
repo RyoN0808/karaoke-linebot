@@ -39,5 +39,5 @@ def predict_rating_change(scores: list[float], step: float = 0.1, max_try: int =
         "current_avg": round(current_avg, 3),
         "current_rating": current_rating,
         "next_up_score": next_up_score,
-        "next_rating": get_rating_from_score(current_avg_score),
+        "next_rating": get_rating_from_score(current_avg),
     }
