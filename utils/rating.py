@@ -1,4 +1,4 @@
-def get_rating_from_ema(ema: float) -> str:
+def get_rating_from_wma(ema: float) -> str:
     if ema >= 95:
         return "SS"
     elif ema >= 90:
