@@ -2,7 +2,8 @@ import os
 import re
 import io
 import logging
-import json
+from utils.rating import get_rating_from_ema
+from utils.rating_predictor import predict_rating_change  # ← 追加
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from google.oauth2 import service_account
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, ImageMessage, TextSendMessage
+    MessageEvent, TextMessage, ImageMessage, TextSendMessage,
 )
 
 from supabase_client import supabase
@@ -22,10 +23,11 @@ from utils.ocr_utils import (
     _extract_score
 )
 from utils.ema import calculate_ema
-from utils.rating import get_rating_from_ema
 from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
+import requests
+import json
 from utils.richmenu import create_and_link_rich_menu
 
 # ==============================
@@ -207,12 +209,20 @@ def handle_text(event):
 
             msg = (
                 "\U0001F4CA あなたの成績\n"
+                f"・レーティング: {rating}\n"
                 f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・EMA評価スコア: {ema_score or '---'}\n"
-                f"・レーティング: {rating}"
+                f"・EMA評価スコア: {ema_score or '---'}"
+                
             )
+            if "next_up_score" in rating_info:
+                msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
+            elif rating_info.get("can_downgrade"):
+                msg += "・注意！低いスコアが続くとランクが下がる可能性があります。\n"
+
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+            return
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
 
