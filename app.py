@@ -202,30 +202,34 @@ def handle_text(event):
             max_score = max(score_list) if score_list else None
             ema_score = calculate_ema(score_list) if len(score_list) >= 5 else None
             rating_info = predict_rating_change(score_list) if ema_score is not None else {}
-
+        
             user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
             score_count = user_info.data["score_count"] if user_info.data else 0
-
+        
             msg = (
                 "\U0001F4CA あなたの成績\n"
-                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
-                f"・EMA評価スコア: {round(ema_score, 3) if ema_score is not None else '---'}\n"
+                f"・登録回数: {score_count} 回\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・登録回数: {score_count} 回\n"
+                f"・EMA評価スコア: {round(ema_score, 3) if ema_score is not None else '---'}\n"
+                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
             )
-
-            if "next_up_score" in rating_info and rating_info["next_up_score"] <= 100:
-                msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
-            elif (
-                rating_info.get("can_downgrade") and 
-                rating_info.get("next_down_score") <= 100 and 
-                rating_info.get("next_down_score") >= 75
+        
+            next_up = rating_info.get("next_up_score")
+            if next_up is not None and next_up <= 100:
+                msg += f"・次のランクに上がるにはあと {round(next_up, 1)} 点が必要！\n"
+        
+            next_down = rating_info.get("next_down_score")
+            if (
+                rating_info.get("can_downgrade") and
+                next_down is not None and
+                75 <= next_down <= 100
             ):
-                msg += f"・注意！{rating_info['next_down_score']} 点未満でランクが下がる可能性があります。\n"
-
+                msg += f"・注意！{round(next_down, 1)} 点未満でランクが下がる可能性があります。\n"
+        
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
+
 
         # 修正コマンド
         if is_correction_command(text):
