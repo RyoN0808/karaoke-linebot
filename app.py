@@ -110,7 +110,7 @@ def handle_image(event):
             now_iso = datetime.utcnow().isoformat()
 
             user_resp = supabase.table("users").select("score_count, user_code").eq("id", user_id).maybe_single().execute()
-            current_data = (user_resp.data if user_resp and user_resp.data else {})
+            current_data = user_resp.data if user_resp and user_resp.data else {}
             current_count = current_data.get("score_count", 0)
             user_code = current_data.get("user_code") or generate_unique_user_code()
 
@@ -131,20 +131,21 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            # EMA・レーティングの更新
+            # 平均スコアによるレーティング更新
             resp = supabase.table("scores") \
                 .select("score, created_at") \
                 .eq("user_id", user_id) \
                 .order("created_at", desc=True) \
                 .limit(30).execute()
             scores = [s["score"] for s in resp.data if s.get("score") is not None]
-            wma = calculate_wma(scores)
-            rating = get_rating_from_wma(wma)
+            if len(scores) >= 5:
+                avg_score = round(sum(scores) / len(scores), 3)
+                rating = get_rating_from_score(avg_score)
 
-            supabase.table("users").update({
-                "wma_score": wma,
-                "wma_rating": rating
-            }).eq("id", user_id).execute()
+                supabase.table("users").update({
+                    "average_score": avg_score,
+                    "rating": rating
+                }).eq("id", user_id).execute()
 
             reply_msg = (
                 f"✅ スコア登録完了！\n"
@@ -168,6 +169,8 @@ def handle_image(event):
             if os.path.exists(image_path):
                 os.remove(image_path)
         except Exception:
+            logging.warning("❗ 一時画像ファイルの削除に失敗しました")
+
             logging.warning("❗ 一時画像ファイルの削除に失敗しました")
 
 # ==============================
