@@ -3,7 +3,7 @@ import re
 import io
 import logging
 from utils.rating import get_rating_from_score
-from utils.rating_predictor import predict_rating_change  # ← 追加
+#from utils.rating_predictor import predict_rating_change  # ← 追加
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv

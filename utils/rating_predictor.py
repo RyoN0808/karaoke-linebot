@@ -1,45 +1,70 @@
-from utils.rating import get_rating_from_score  # 関数名に合わせて
+from typing import List, Dict, Optional
+from utils import rating  # rating.pyにランク判定用の関数・定数がある想定
 
-def predict_rating_change(scores: list[float], step: float = 0.1, max_try: int = 100):
-    if not scores:
-        return {}
+def predict_next_rating(scores: List[float]) -> Dict[str, Optional[float]]:
+    """
+    ユーザーのスコアリストから次回投稿時のレーティング変動を予測する関数。
+    最新のスコア記録に基づき、仮定した次回1件のスコアを加味して新しい平均スコアを算出し、
+    現在のランクよりランクアップする条件やランクダウンする条件を判定する。
+    結果として、次回何点以上でランクアップするか、何点未満でランクダウンとなるかを示す情報をJSON形式で返す。
+    """
+    result: Dict[str, Optional[float]] = {}
+    total_scores = len(scores)
+    if total_scores == 0:
+        # スコア記録がない場合は予測不能なので空の結果を返す
+        return result
 
-    # 最新30曲から直近29曲を使用
-    recent_scores = scores[-29:] if len(scores) >= 29 else scores
-    current_avg = round(sum(scores) / len(scores), 3)
-    current_rating = get_rating_from_score(current_avg)
+    # 評価対象とするスコア数の決定：30件以上なら最新29件、未満なら全件
+    if total_scores >= 30:
+        base_scores = scores[:29]   # 最新29件（次回投稿時に残るスコア群）
+        new_count = 30             # 次回投稿後の評価対象件数は30件で固定
+    else:
+        base_scores = scores[:]    # 全スコア（次回投稿時もすべて残る）
+        new_count = total_scores + 1  # 次回投稿後は件数が1つ増える
 
-    # レーティングの順序としきい値
-    rating_levels = ["SS", "SA", "S", "A", "B"]
-    rating_thresholds = {
-        "SS": 95,
-        "SA": 90,
-        "S": 85,
-        "A": 80,
-        "B": 70
-    }
+    base_sum = sum(base_scores)  # ベースとなる最新29件（または全件）の合計値
 
-    # 上に上がれるかチェック
-    next_up_score = None
-    for i in range(max_try):
-        new_score = rating_thresholds[current_rating] + i * step
-        new_scores = recent_scores + [new_score]  # 29曲 + 仮の1曲
-        new_avg = sum(new_scores) / len(new_scores)
-        new_rating = get_rating_from_score(new_avg)
-        if rating_levels.index(new_rating) < rating_levels.index(current_rating):
-            next_up_score = round(new_score, 3)
-            break
+    # 現在の平均スコアとランクを算出（評価対象は現時点で最大30件）
+    current_count = min(total_scores, 30)
+    current_avg = sum(scores[:current_count]) / current_count
+    current_rank = rating.get_rank(current_avg)  # 現在のランクを取得（例："A", "B", など）
 
-    # 下がるケース（極端な低スコアでチェック）
-    down_scores = recent_scores + [0.0]
-    down_avg = sum(down_scores) / len(down_scores)
-    down_rating = get_rating_from_score(down_avg)
+    # 上位ランクと下位ランクを取得
+    next_rank = rating.get_next_rank(current_rank)       # 1つ上のランク（無ければNone）
+    lower_rank = rating.get_previous_rank(current_rank)  # 1つ下のランク（無ければNone）
 
-    return {
-        "current_avg": round(current_avg, 3),
-        "current_rating": current_rating,
-        "next_up_score": next_up_score,
-        "next_rating": get_rating_from_score(current_avg),
-        "can_downgrade": down_rating != current_rating,
-        "next_down_score": 0.0 if down_rating != current_rating else None
-    }
+    # ランクアップ閾値計算
+    if next_rank:
+        next_threshold = rating.get_threshold(next_rank)  # 上位ランクの最低平均値
+        # 次回スコアがこの値以上ならランクアップする最低値を計算
+        required_score = next_threshold * new_count - base_sum
+        # 小数点が出た場合は切り上げる（そのスコア「以上」でランクアップのため）
+        required_score = math.ceil(required_score)
+        if required_score <= 0:
+            required_score = 0  # マイナスは0に補正
+        # 100点満点を超える場合もそのまま記録（次回1回では到達不可の指標）
+        result["rank_up_score"] = required_score
+    else:
+        # 現在が最高ランクの場合はランクアップ閾値なし
+        result["rank_up_score"] = None
+
+    # ランクダウン閾値計算
+    if lower_rank:
+        current_threshold = rating.get_threshold(current_rank)  # 現在ランク維持に必要な最低平均
+        # 次回スコアがこの値を下回るとランクダウンとなる境界値を計算
+        # （平均がcurrent_thresholdちょうどになるスコアを求め、それ未満でダウン）
+        boundary_score = current_threshold * new_count - base_sum
+        # 境界値（平均ぎりぎり維持できる次回スコア）。これ未満でアウト。
+        boundary_score = math.floor(boundary_score)
+        if boundary_score < 0:
+            boundary_score = 0
+        # ランクダウン判定は「boundary_score未満」なので、ユーザーには boundary_score を閾値として提示
+        result["rank_down_score"] = boundary_score
+        # もし0点未満が境界の場合（通常ありえないが念のため）、Noneにする
+        if result["rank_down_score"] == 0 and (current_threshold * new_count - base_sum) <= 0:
+            result["rank_down_score"] = None
+    else:
+        # 最低ランクの場合はランクダウン閾値なし
+        result["rank_down_score"] = None
+
+    return result
