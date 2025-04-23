@@ -33,7 +33,7 @@ def predict_next_rating(scores: List[float]) -> Dict[str, Optional[float]]:
     if next_rank:
         next_threshold = rating.get_threshold(next_rank)
         required_score = math.ceil(next_threshold * new_count - base_sum)
-        result["next_up_score"] = max(0, min(100, required_score))
+        result["next_up_score"] = required_score
     else:
         result["next_up_score"] = None
 
