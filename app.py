@@ -198,6 +198,7 @@ def handle_text(event):
         if text == "成績確認":
             resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             score_list = [s["score"] for s in resp.data if s.get("score") is not None]
+            logging.debug(f"[DEBUG] 最新30件のスコアリスト: {score_list}")
             latest_score = score_list[0] if score_list else None
             max_score = max(score_list) if score_list else None
             avg_score = round(sum(score_list) / len(score_list), 3) if len(score_list) >= 5 else None
