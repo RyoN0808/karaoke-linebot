@@ -217,11 +217,11 @@ def handle_text(event):
 
             msg = (
                 "\U0001F4CA あなたの成績\n"
-                f"・登録回数: {score_count} 回\n"
+                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
+                f"・平均スコア（最新30曲）: {avg_score or '---'}\n"
                 f"・最新スコア: {latest_score or '---'}\n"
                 f"・最高スコア: {max_score or '---'}\n"
-                f"・平均スコア（最新30曲）: {avg_score or '---'}\n"
-                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
+                f"・登録回数: {score_count} 回\n"
             )
 
             if (
@@ -229,7 +229,7 @@ def handle_text(event):
                 and rating_info["next_up_score"] is not None
                 and rating_info["next_up_score"] <= 100
             ):
-                msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
+                msg += f"・次のレーティングに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
 
             elif (
                 rating_info.get("can_downgrade") and 
@@ -237,7 +237,7 @@ def handle_text(event):
                 rating_info["next_down_score"] <= 100 and 
                 rating_info["next_down_score"] >= 75
             ):
-                msg += f"・注意！{rating_info['next_down_score']} 点未満でランクが下がる可能性があります。\n"
+                msg += f"・おっと！{rating_info['next_down_score']} 点未満でレーティングが下がってしまうかも！\n"
 
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
             return
