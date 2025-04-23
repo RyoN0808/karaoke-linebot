@@ -17,7 +17,7 @@ from linebot.models import (
 
 from supabase_client import supabase
 from utils.ocr_utils import (
-    is_correction_command, get_correction_menu,
+    #is_correction_command, get_correction_menu,
     is_correction_field_selection, set_user_correction_step,
     get_user_correction_step, clear_user_correction_step,
     _extract_score
