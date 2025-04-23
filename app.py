@@ -224,12 +224,18 @@ def handle_text(event):
                 f"・レーティング: {rating_info.get('current_rating', '---')}\n"
             )
 
-            if (
+            """if (
                 "next_up_score" in rating_info
                 and rating_info["next_up_score"] is not None
                 and rating_info["next_up_score"] <= 100
             ):
                 msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
+"""
+            if (
+                "next_up_score" in rating_info
+                and rating_info["next_up_score"] is not None
+            ):
+                msg += f"・次のランクに上がるにはあと {rating_info['next_up_score']} 点が必要！（※デバッグ）\n"
 
             elif (
                 rating_info.get("can_downgrade") and 
