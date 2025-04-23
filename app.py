@@ -17,7 +17,7 @@ from linebot.models import (
 
 from supabase_client import supabase
 from utils.ocr_utils import (
-    #is_correction_command, get_correction_menu,
+    is_correction_command, get_correction_menu,
     is_correction_field_selection, set_user_correction_step,
     get_user_correction_step, clear_user_correction_step,
     _extract_score
@@ -28,6 +28,8 @@ from utils.user_code import generate_unique_user_code
 import requests
 import json
 from utils.richmenu import create_and_link_rich_menu
+from utils.ocr_utils import is_correction_command
+
 
 # ==============================
 # App初期化
