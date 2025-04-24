@@ -38,7 +38,7 @@ def build_user_stats_message(user_id: str) -> Optional[str]:
 
     next_up_score = rating_info.get("next_up_score")
     if next_up_score is not None and next_up_score <= 100:
-        msg += f"・次のレーティングに上がるにはあと {next_up_score} 点が必要！\n"
+        msg += f"・次のレーティングに上がるには次{next_up_score} 点が必要！\n"
 
     next_down_score = rating_info.get("next_down_score")
     if (
