@@ -22,11 +22,13 @@ def build_user_stats_message(user_id: str) -> Optional[str]:
     msg = (
         "\U0001F4CA あなたの成績\n"
         f"・レーティング: {rating_info.get('current_rating', '---')}\n"
-        f"・平均スコア（最新30曲）: {avg_score or '---'}\n"
+        f"・平均スコア: {avg_score or '---'}\n"
         f"・最新スコア: {latest_score or '---'}\n"
         f"・最高スコア: {max_score or '---'}\n"
         f"・登録回数: {score_count} 回\n"
     )
+    print("[DEBUG] next_up_score:", rating_info.get("next_up_score"))
+
 
     if (
         "next_up_score" in rating_info
