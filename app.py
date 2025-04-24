@@ -85,7 +85,8 @@ def handle_image(event):
         with open(image_path, "wb") as f:
             for chunk in message_content.iter_content():
                 f.write(chunk)
-        client = vision.ImageAnnotatorClient(credentials=credentials)
+
+        client = vision.ImageAnnotatorClient()
 
         with open(image_path, "rb") as image_file:
             content = image_file.read()
