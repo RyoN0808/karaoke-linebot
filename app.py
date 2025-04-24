@@ -113,39 +113,29 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
-            scores = [s["score"] for s in resp.data if s.get("score") is not None]
-            if len(scores) >= 5:
-                avg_score = round(sum(scores) / len(scores), 3)
-                rating = get_rating_from_score(avg_score)
-                supabase.table("users").update({
-                    "average_score": avg_score,
-                    "rating": rating
-                }).eq("id", user_id).execute()
-
-            reply_msg = (
-                f"✅ スコア登録完了！\n"
-                f"点数: {parsed['score']}\n"
-                f"曲名: {parsed['song_name'] or '---'}\n"
-                f"アーティスト: {parsed['artist_name'] or '---'}"
-            )
-
+            # 成績確認メッセージを構築
             try:
                 stats_msg = build_user_stats_message(user_id)
             except Exception:
                 logging.exception("❌ 成績確認の生成に失敗しました")
                 stats_msg = "⚠️ 成績情報の取得に失敗しました。"
 
+            # メッセージ1通にまとめて送信
+            reply_msg = (
+                f"✅ スコア登録完了！\n"
+                f"点数: {parsed['score']}\n"
+                f"曲名: {parsed['song_name'] or '---'}\n"
+                f"アーティスト: {parsed['artist_name'] or '---'}\n\n"
+                f"{stats_msg}"
+            )
+
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
+
+        else:
             line_bot_api.reply_message(
                 event.reply_token,
-                messages=[
-                    TextSendMessage(text=reply_msg),
-                    TextSendMessage(text=stats_msg)
-                ]
+                TextSendMessage(text="⚠️ スコアが読み取れませんでした。画像を確認してください。")
             )
-        else:
-            reply_msg = "⚠️ スコアが読み取れませんでした。画像を確認してください。"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
 
     except Exception:
         logging.exception("画像処理中にエラーが発生しました")
