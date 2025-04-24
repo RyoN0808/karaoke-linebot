@@ -2,8 +2,6 @@ import os
 import re
 import io
 import logging
-from utils.rating import get_rating_from_score
-from utils.rating_predictor import predict_next_rating
 from datetime import datetime
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -11,11 +9,11 @@ from google.cloud import vision
 from google.oauth2 import service_account
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent, TextMessage, ImageMessage, TextSendMessage,
-)
+from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage
 
 from supabase_client import supabase
+from utils.rating import get_rating_from_score
+from utils.rating_predictor import predict_next_rating
 from utils.ocr_utils import (
     is_correction_command, get_correction_menu,
     is_correction_field_selection, set_user_correction_step,
@@ -25,15 +23,9 @@ from utils.ocr_utils import (
 from utils.field_map import get_supabase_field
 from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
-import requests
-import json
 from utils.richmenu import create_and_link_rich_menu
-from utils.ocr_utils import is_correction_command
+from utils.stats import build_user_stats_message
 
-
-# ==============================
-# App初期化
-# ==============================
 load_dotenv()
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -41,9 +33,6 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
-# ==============================
-# リッチメニュー作成エンドポイント
-# ==============================
 @app.route("/create-richmenu", methods=["GET"])
 def create_richmenu():
     try:
@@ -52,9 +41,6 @@ def create_richmenu():
     except Exception as e:
         return f"❌ リッチメニュー作成に失敗しました: {str(e)}", 500
 
-# ==============================
-# LINE Webhookエンドポイント
-# ==============================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
@@ -73,9 +59,6 @@ def webhook():
 
     return "OK"
 
-# ==============================
-# 画像メッセージの処理
-# ==============================
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     try:
@@ -87,7 +70,6 @@ def handle_image(event):
                 f.write(chunk)
 
         client = vision.ImageAnnotatorClient()
-
         with open(image_path, "rb") as image_file:
             content = image_file.read()
         image = vision.Image(content=content)
@@ -131,12 +113,7 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            # 平均スコアによるレーティング更新
-            resp = supabase.table("scores") \
-                .select("score, created_at") \
-                .eq("user_id", user_id) \
-                .order("created_at", desc=True) \
-                .limit(30).execute()
+            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
             scores = [s["score"] for s in resp.data if s.get("score") is not None]
             if len(scores) >= 5:
                 avg_score = round(sum(scores) / len(scores), 3)
@@ -152,10 +129,23 @@ def handle_image(event):
                 f"曲名: {parsed['song_name'] or '---'}\n"
                 f"アーティスト: {parsed['artist_name'] or '---'}"
             )
+
+            try:
+                stats_msg = build_user_stats_message(user_id)
+            except Exception:
+                logging.exception("❌ 成績確認の生成に失敗しました")
+                stats_msg = "⚠️ 成績情報の取得に失敗しました。"
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                messages=[
+                    TextSendMessage(text=reply_msg),
+                    TextSendMessage(text=stats_msg)
+                ]
+            )
         else:
             reply_msg = "⚠️ スコアが読み取れませんでした。画像を確認してください。"
-
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
 
     except Exception:
         logging.exception("画像処理中にエラーが発生しました")
@@ -170,22 +160,28 @@ def handle_image(event):
         except Exception:
             logging.warning("❗ 一時画像ファイルの削除に失敗しました")
 
+            
+
 # ==============================
 # テキストメッセージの処理
 # ==============================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
-    try:
-        user_id = event.source.user_id
-        text = event.message.text.strip()
+    user_id = event.source.user_id
+    text = event.message.text.strip()
 
-        # 名前変更トリガー
+    try:
+        # ----------------------
+        # 名前変更（開始）
+        # ----------------------
         if text == "名前変更":
             supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 新しい名前を入力してください"))
             return
 
-        # 名前変更状態チェック
+        # ----------------------
+        # 名前変更（確定）
+        # ----------------------
         name_req = supabase.table("name_change_requests").select("*").eq("user_id", user_id).maybe_single().execute()
         if name_req and name_req.data and name_req.data.get("waiting"):
             new_name = text
@@ -194,71 +190,44 @@ def handle_text(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！"))
             return
 
+        # ----------------------
         # 成績確認
+        # ----------------------
         if text == "成績確認":
-            resp = supabase.table("scores").select("score, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
-            score_list = [s["score"] for s in resp.data if s.get("score") is not None]
-            logging.debug(f"[DEBUG] 最新30件のスコアリスト: {score_list}")
-            latest_score = score_list[0] if score_list else None
-            max_score = max(score_list) if score_list else None
-            avg_score = round(sum(score_list) / len(score_list), 3) if len(score_list) >= 5 else None
-            rating_info = predict_next_rating(score_list) if avg_score is not None else {}
-
-            # ユーザー情報取得
-            user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
-            score_count = user_info.data["score_count"] if user_info.data else 0
-
-            # 平均スコアとレーティングをSupabaseに保存
-            if avg_score is not None:
-                supabase.table("users").update({
-                    "average_score": avg_score,
-                    "rating": rating_info.get("current_rating")
-                }).eq("id", user_id).execute()
-
-            msg = (
-                "\U0001F4CA あなたの成績\n"
-                f"・レーティング: {rating_info.get('current_rating', '---')}\n"
-                f"・平均スコア（最新30曲）: {avg_score or '---'}\n"
-                f"・最新スコア: {latest_score or '---'}\n"
-                f"・最高スコア: {max_score or '---'}\n"
-                f"・登録回数: {score_count} 回\n"
-            )
-
-            if (
-                "next_up_score" in rating_info
-                and rating_info["next_up_score"] is not None
-                and rating_info["next_up_score"] <= 100
-            ):
-                msg += f"・次のレーティングに上がるにはあと {rating_info['next_up_score']} 点が必要！\n"
-
-            elif (
-                rating_info.get("can_downgrade") and 
-                rating_info.get("next_down_score") and
-                rating_info["next_down_score"] <= 100 and 
-                rating_info["next_down_score"] >= 75
-            ):
-                msg += f"・おっと！{rating_info['next_down_score']} 点未満でレーティングが下がってしまうかも！\n"
-
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+            try:
+                stats_msg = build_user_stats_message(user_id)
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=stats_msg))
+            except Exception:
+                logging.exception("❌ 成績確認の生成に失敗しました")
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 成績情報の取得に失敗しました。"))
             return
 
-        # 修正コマンド
+        # ----------------------
+        # 修正メニュー表示
+        # ----------------------
         if is_correction_command(text):
             clear_user_correction_step(user_id)
             line_bot_api.reply_message(event.reply_token, get_correction_menu())
             return
 
+        # ----------------------
+        # 修正項目選択
+        # ----------------------
         if is_correction_field_selection(text):
             set_user_correction_step(user_id, text)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
             return
 
+        # ----------------------
+        # 修正値の入力と反映
+        # ----------------------
         field = get_user_correction_step(user_id)
         if field:
+            value = text
             if field == "スコア":
-                text = text.translate(str.maketrans("０１２３４５６７８９．", "0123456789."))
+                value = text.translate(str.maketrans("０１２３４５６７８９．", "0123456789."))
                 try:
-                    text = float(text)
+                    value = float(value)
                 except ValueError:
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
                     return
@@ -266,9 +235,11 @@ def handle_text(event):
             latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
             if latest.data:
                 score_id = latest.data[0]["id"]
-                supabase.table("scores").update({get_supabase_field(field): text}).eq("id", score_id).execute()
+                supabase.table("scores").update({get_supabase_field(field): value}).eq("id", score_id).execute()
+
                 updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
                 clear_user_correction_step(user_id)
+
                 updated_data = updated.data
                 msg = (
                     f"✅ 修正完了！\n"
