@@ -25,6 +25,8 @@ from utils.gpt_parser import parse_text_with_gpt
 from utils.user_code import generate_unique_user_code
 from utils.richmenu import create_and_link_rich_menu
 from utils.stats import build_user_stats_message
+from linebot.models import FollowEvent
+from utils.onboarding import handle_user_onboarding
 
 load_dotenv()
 app = Flask(__name__)
@@ -32,6 +34,15 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(m
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+
+@handler.add(FollowEvent)
+def handle_follow(event):
+    user_id = event.source.user_id
+    profile = line_bot_api.get_profile(user_id)
+    user_name = profile.display_name or "unknown"
+
+    handle_user_onboarding(user_id, user_name, line_bot_api, event.reply_token)
+
 
 @app.route("/create-richmenu", methods=["GET"])
 def create_richmenu():
@@ -127,6 +138,7 @@ def handle_image(event):
                 f"曲名: {parsed['song_name'] or '---'}\n"
                 f"アーティスト: {parsed['artist_name'] or '---'}\n\n"
                 f"{stats_msg}"
+
             )
 
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
