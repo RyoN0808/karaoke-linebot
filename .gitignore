@@ -16,3 +16,5 @@ venv/
 
 # Images / cache
 /tmp/
+composite-area-*.json
+composite-area-*.json
