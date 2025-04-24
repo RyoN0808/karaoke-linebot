@@ -86,7 +86,7 @@ def handle_image(event):
             for chunk in message_content.iter_content():
                 f.write(chunk)
 
-        credentials_info = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
+        
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
         client = vision.ImageAnnotatorClient(credentials=credentials)
 
