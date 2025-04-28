@@ -28,20 +28,36 @@ from utils.stats import build_user_stats_message
 from linebot.models import FollowEvent
 from utils.onboarding import handle_user_onboarding
 
-load_dotenv()
 app = Flask(__name__)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
+
+env_file = os.getenv("ENV_FILE", ".env.dev")
+load_dotenv(dotenv_path=env_file)
+
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+
+log_level = logging.DEBUG if DEBUG else logging.INFO
+logging.basicConfig(
+    level=log_level,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
+print(f"[INFO] 読み込まれた env ファイル: {env_file}")
 
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
 @handler.add(FollowEvent)
 def handle_follow(event):
-    user_id = event.source.user_id
-    profile = line_bot_api.get_profile(user_id)
-    user_name = profile.display_name or "unknown"
+    try:
+        user_id = event.source.user_id
+        profile = line_bot_api.get_profile(user_id)
+        user_name = profile.display_name or "unknown"
 
-    handle_user_onboarding(user_id, user_name, line_bot_api, event.reply_token)
+        handle_user_onboarding(user_id, user_name, line_bot_api, event.reply_token)
+    except Exception:
+        logging.exception("❌ Followイベント処理に失敗しました")
 
 
 @app.route("/create-richmenu", methods=["GET"])
@@ -70,10 +86,42 @@ def webhook():
 
     return "OK"
 
+# ==============================
+# グローバルカウント用
+# ==============================
+import time
+
+# ユーザーごとの画像送信履歴を保存する（メモリ上）
+user_send_history = {}
+
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     try:
         user_id = event.source.user_id
+        now = time.time()
+
+        # ユーザー履歴なければ初期化
+        if user_id not in user_send_history:
+            user_send_history[user_id] = []
+
+        # 直近80秒以内の履歴だけ残す
+        user_send_history[user_id] = [
+            t for t in user_send_history[user_id] if now - t < 80
+        ]
+
+        # 今回の送信を追加
+        user_send_history[user_id].append(now)
+
+        # 10秒以内に3枚以上送信してたら拒否
+        if len(user_send_history[user_id]) > 2:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ 一度に送信できる画像は最大2枚までです。少し待ってから再送信してください。")
+            )
+            return
+
+        # ========== ここから通常の画像処理 ==========
+
         message_content = line_bot_api.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
@@ -98,6 +146,15 @@ def handle_image(event):
         logging.debug("\U0001F50E パース結果: %s", parsed)
 
         if parsed["score"] is not None:
+            # スコアの範囲チェック（30.000〜100.000未満）
+            if not (30.000 <= parsed["score"] < 100.000):
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="⚠️ 点数は30.000以上100.000未満のみ登録できます。")
+                )
+                return
+
+            # ここからDB登録処理
             profile = line_bot_api.get_profile(user_id)
             user_name = profile.display_name or "unknown"
             now_iso = datetime.utcnow().isoformat()
@@ -124,23 +181,19 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            # 成績確認メッセージを構築
             try:
                 stats_msg = build_user_stats_message(user_id)
             except Exception:
                 logging.exception("❌ 成績確認の生成に失敗しました")
                 stats_msg = "⚠️ 成績情報の取得に失敗しました。"
 
-            # メッセージ1通にまとめて送信
             reply_msg = (
                 f"✅ スコア登録完了！\n"
                 f"点数: {parsed['score']}\n"
                 f"曲名: {parsed['song_name'] or '---'}\n"
                 f"アーティスト: {parsed['artist_name'] or '---'}\n\n"
                 f"{stats_msg}"
-
             )
-
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
 
         else:
@@ -150,7 +203,7 @@ def handle_image(event):
             )
 
     except Exception:
-        logging.exception("画像処理中にエラーが発生しました")
+        logging.exception("❌ 画像処理中にエラーが発生しました")
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="❌ 画像の処理に失敗しました。もう一度お試しください。")
@@ -161,6 +214,8 @@ def handle_image(event):
                 os.remove(image_path)
         except Exception:
             logging.warning("❗ 一時画像ファイルの削除に失敗しました")
+
+
 
             
 
