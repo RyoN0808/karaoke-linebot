@@ -3,8 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 venv/
-.env
-
+.env.*
 # macOS
 .DS_Store
 
@@ -16,5 +15,6 @@ venv/
 
 # Images / cache
 /tmp/
-composite-area-*.json
-composite-area-*.json
+
+#credentials file
+credentials

@@ -137,3 +137,14 @@ def parse_correction_command(text: str):
         if match:
             result[key] = match.group(1).strip()
     return result
+
+
+# ==============================
+# スコア修正バリデーション
+# ==============================
+
+def validate_score_range(score: float) -> bool:
+    """
+    スコアが30.000以上100.000未満かチェックする
+    """
+    return 30.000 <= score < 100.000
