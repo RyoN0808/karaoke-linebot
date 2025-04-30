@@ -1,15 +1,13 @@
 import os
 import re
 import io
-import cv2
 import logging
 from typing import Optional
-from PIL import Image
-import numpy as np
 from google.cloud import vision
 from google.oauth2 import service_account
 from google.cloud.vision_v1.types.image_annotator import AnnotateImageResponse
-from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+from linebot.v3.messaging.models import TextMessage, QuickReply, QuickReplyItem, MessageAction
+
 # ==============================
 # スコア抽出処理
 # ==============================
@@ -39,15 +37,12 @@ def _extract_score(texts) -> Optional[float]:
     for i, annotation in enumerate(texts[1:]):  # texts[0] は全文
         desc = annotation.description.strip()
 
-        # 数値形式（例：92.170）を持つものだけ対象
         if not re.match(r'^\d{2,3}[.,]\d{1,3}$', desc):
             continue
 
-        # 周囲テキストを確認
         near_texts = texts[max(0, i): i + 4]
         context = " ".join(t.description for t in near_texts)
 
-        # 「点」が近くにある場合に優先度アップ
         priority = 1 if "点" in context else 0
 
         try:
@@ -60,11 +55,8 @@ def _extract_score(texts) -> Optional[float]:
         logging.warning("❗ スコア候補が見つかりませんでした")
         return None
 
-    # 優先度 → 数値の大きさ で優先ソート
     best = max(candidates, key=lambda x: (x["priority"], x["score"]))
     return best["score"]
-
-
 
 # ==============================
 # OCR 実行
@@ -94,13 +86,13 @@ def extract_text_from_image(image_path):
 def is_correction_command(text: str) -> bool:
     return text == "修正" or text.lower() == "fix"
 
-def get_correction_menu() -> TextSendMessage:
-    return TextSendMessage(
+def get_correction_menu() -> TextMessage:
+    return TextMessage(
         text="🔧 修正したい項目を選んでください：",
         quick_reply=QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="スコア", text="スコア")),
-            QuickReplyButton(action=MessageAction(label="曲名", text="曲名")),
-            QuickReplyButton(action=MessageAction(label="アーティスト", text="アーティスト")),
+            QuickReplyItem(action=MessageAction(label="スコア", text="スコア")),
+            QuickReplyItem(action=MessageAction(label="曲名", text="曲名")),
+            QuickReplyItem(action=MessageAction(label="アーティスト", text="アーティスト")),
         ])
     )
 
@@ -130,14 +122,13 @@ def parse_correction_command(text: str):
         "score": r"score[:：]\s*(\d+[.,]?\d+)",
         "song_name": r"(?:曲名|song)[:：]\s*(\S+)",
         "artist_name": r"(?:アーティスト|artist)[:：]\s*(\S+)",
-        "comment": r"(?:コメント|comment)[:：]\s*(.+)"
+        "comment": r"(?:コメント|comment)[:：](.+)"
     }
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             result[key] = match.group(1).strip()
     return result
-
 
 # ==============================
 # スコア修正バリデーション
