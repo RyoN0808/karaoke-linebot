@@ -46,7 +46,6 @@ OCR結果：
     except Exception as e:
         logging.exception("❌ GPT構造化に失敗")
         return {
-            "score": None,
             "song_name": None,
             "artist_name": None,
            
