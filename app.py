@@ -43,6 +43,11 @@ line_bot_api_v2 = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 user_send_history = {}
 
 # --- ルーティング ---
+
+from routes.login import login_bp
+
+app.register_blueprint(login_bp)
+
 @app.route("/", methods=["GET"])
 def index():
     return "✅ Flask x LINE Bot is running!"
