@@ -27,6 +27,30 @@ from utils.ocr_utils import (
 )
 from utils.field_map import get_supabase_field
 
+print("ENV_MODE:", os.getenv("ENV_MODE"))  # デバッグ
+env_mode = os.getenv("ENV_MODE", "dev")
+
+if env_mode == "prod":
+    load_dotenv(".env.prod")
+    print("Loaded .env.prod")
+else:
+    load_dotenv(".env.dev")
+    print("Loaded .env.dev")
+
+print("LINE_LOGIN_CLIENT_ID:", os.getenv("LINE_LOGIN_CLIENT_ID"))
+
+# その他既存の import
+
+env_mode = os.getenv("ENV_MODE", "dev")  # デフォルトは dev
+
+if env_mode == "prod":
+    load_dotenv(".env.prod")
+else:
+    load_dotenv(".env.dev")
+
+# ここから既存のコード
+
+
 # --- 初期設定 ---
 app = Flask(__name__)
 env_file = os.getenv("ENV_FILE", ".env.dev")
