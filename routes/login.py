@@ -3,16 +3,14 @@ import requests
 import os
 from jose import jwt
 
+# Blueprint 定義（url_prefix に /login を指定）
 login_bp = Blueprint("login", __name__, url_prefix="/login")
-
 
 # 環境変数から設定読み込み
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_CLIENT_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
-
-print("LINE_LOGIN_CLIENT_ID:", os.getenv("LINE_LOGIN_CLIENT_ID"))
 
 # LINE公開鍵取得
 def get_line_public_key(kid: str):
@@ -43,7 +41,7 @@ def verify_id_token(id_token: str):
     return payload
 
 # LINEログイン開始エンドポイント
-@login_bp.route("/login/line")
+@login_bp.route("/line")
 def login_line():
     line_auth_url = (
         f"https://access.line.me/oauth2/v2.1/authorize"
@@ -56,7 +54,7 @@ def login_line():
     return redirect(line_auth_url)
 
 # コールバックエンドポイント
-@login_bp.route("/login/line/callback")
+@login_bp.route("/line/callback")
 def line_callback():
     # 1. 認可コード取得
     code = request.args.get("code")
@@ -90,7 +88,7 @@ def line_callback():
 
     line_user_id = user_info["sub"]  # LINE UUID
 
-    # ここで Step 3 へ進む（Supabase users 照合/登録）
+    # ここで Step 3 へ進む（Supabase users 照合/登録など）
 
     return jsonify({
         "message": "LINE IDトークン検証成功",
