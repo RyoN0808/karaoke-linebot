@@ -5,11 +5,14 @@ from jose import jwt
 
 login_bp = Blueprint("login", __name__, url_prefix="/login")
 
+
 # 環境変数から設定読み込み
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_CLIENT_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
+
+print("LINE_LOGIN_CLIENT_ID:", os.getenv("LINE_LOGIN_CLIENT_ID"))
 
 # LINE公開鍵取得
 def get_line_public_key(kid: str):
