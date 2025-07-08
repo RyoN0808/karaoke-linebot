@@ -39,6 +39,20 @@ def verify_id_token(id_token: str):
     )
     return payload
 
+# LINEログイン開始エンドポイント
+@login_bp.route("/login/line")
+def login_line():
+    line_auth_url = (
+        f"https://access.line.me/oauth2/v2.1/authorize"
+        f"?response_type=code"
+        f"&client_id={LINE_CLIENT_ID}"
+        f"&redirect_uri={LINE_REDIRECT_URI}"
+        f"&state=test_state"  # TODO: CSRF対策でランダム生成する
+        f"&scope=profile%20openid"
+    )
+    return redirect(line_auth_url)
+
+# コールバックエンドポイント
 @login_bp.route("/login/line/callback")
 def line_callback():
     # 1. 認可コード取得
