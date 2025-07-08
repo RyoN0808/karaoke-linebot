@@ -3,7 +3,7 @@ import requests
 import os
 from jose import jwt
 
-login_bp = Blueprint("login", __name__)
+login_bp = Blueprint("login", __name__, url_prefix="/login")
 
 # 環境変数から設定読み込み
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
