@@ -15,6 +15,7 @@ LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
 LINE_JWT_KID = os.getenv("LINE_JWT_KID")  # 公開鍵登録で発行されたkidを環境変数から取得
 
+
 # === 2. PRIVATE / PUBLIC KEY を tempfile に書き出し ===
 private_key_content = os.getenv("PRIVATE_KEY_CONTENT")
 if not private_key_content:
@@ -111,7 +112,6 @@ def line_callback():
         "code": code,
         "redirect_uri": LINE_REDIRECT_URI,
         "client_id": LINE_CLIENT_ID,
-        "client_secret": LINE_CLIENT_SECRET, 
         "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
         "client_assertion": generate_client_assertion()
     }
