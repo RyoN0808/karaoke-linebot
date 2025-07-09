@@ -53,7 +53,12 @@ def generate_client_assertion():
         claims=payload
     )
     token.make_signed_token(key)
-    return token.serialize()
+
+    # ⭐️ ここで生成された JWT を確認出力
+    token_str = token.serialize()
+    print("Generated client_assertion JWT:", token_str)
+
+    return token_str
 
 # === 4. LINE公開鍵取得 ===
 def get_line_public_key(kid: str):
