@@ -1,37 +1,78 @@
-from flask import Blueprint, request, redirect, jsonify
-import requests
 import os
-from jose import jwt
+import time
+import requests
+from flask import Blueprint, request, redirect, jsonify
+from jose import jwt as jose_jwt
+from jwcrypto import jwt as jw_jwt, jwk
+import tempfile
 
-# Blueprint 定義（url_prefix に /login を指定）
+# Blueprint 定義
 login_bp = Blueprint("login", __name__, url_prefix="/login")
 
-# 環境変数から設定読み込み
+# === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_CLIENT_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
 
-# LINE公開鍵取得
+# === 2. PRIVATE / PUBLIC KEY を tempfile に書き出し ===
+private_key_content = os.getenv("PRIVATE_KEY_CONTENT")
+if not private_key_content:
+    raise Exception("PRIVATE_KEY_CONTENT not set")
+
+with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
+    tmp.write(private_key_content)
+    PRIVATE_KEY_PATH = tmp.name
+
+public_key_content = os.getenv("PUBLIC_KEY_CONTENT")
+if not public_key_content:
+    raise Exception("PUBLIC_KEY_CONTENT not set")
+
+with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
+    tmp.write(public_key_content)
+    PUBLIC_KEY_PATH = tmp.name
+
+# === 3. client_assertion 生成 ===
+def generate_client_assertion():
+    with open(PRIVATE_KEY_PATH, "rb") as f:
+        key = jwk.JWK.from_pem(f.read())
+
+    now = int(time.time())
+    payload = {
+        "iss": LINE_CLIENT_ID,
+        "sub": LINE_CLIENT_ID,
+        "aud": "https://api.line.me/",
+        "exp": now + 300,
+        "token_exp": 600
+    }
+
+    token = jw_jwt.JWT(header={
+        "alg": "RS256",
+        "typ": "JWT",
+        # TODO: kid は実際にLINE Developersの公開鍵登録で払い出された値をセット
+        "kid": "YOUR_KID_VALUE"
+    }, claims=payload)
+
+    token.make_signed_token(key)
+    return token.serialize()
+
+# === 4. LINE公開鍵取得 ===
 def get_line_public_key(kid: str):
     jwks_response = requests.get(LINE_JWKS_URL)
-    if jwks_response.status_code != 200:
-        raise Exception("Failed to get LINE JWKS")
-
+    jwks_response.raise_for_status()
     jwks = jwks_response.json()
     for key in jwks["keys"]:
         if key["kid"] == kid:
             return key
     raise Exception("Public key not found for kid: " + kid)
 
-# IDトークン検証
+# === 5. IDトークン検証 ===
 def verify_id_token(id_token: str):
-    unverified_header = jwt.get_unverified_header(id_token)
+    unverified_header = jose_jwt.get_unverified_header(id_token)
     kid = unverified_header["kid"]
-
     public_key = get_line_public_key(kid)
 
-    payload = jwt.decode(
+    payload = jose_jwt.decode(
         id_token,
         public_key,
         algorithms=["RS256"],
@@ -40,7 +81,7 @@ def verify_id_token(id_token: str):
     )
     return payload
 
-# LINEログイン開始エンドポイント
+# === 6. ログイン開始 ===
 @login_bp.route("/line")
 def login_line():
     line_auth_url = (
@@ -48,21 +89,18 @@ def login_line():
         f"?response_type=code"
         f"&client_id={LINE_CLIENT_ID}"
         f"&redirect_uri={LINE_REDIRECT_URI}"
-        f"&state=test_state"  # TODO: CSRF対策でランダム生成する
+        f"&state=test_state"
         f"&scope=profile%20openid"
     )
     return redirect(line_auth_url)
 
-# コールバックエンドポイント
+# === 7. コールバック ===
 @login_bp.route("/line/callback")
 def line_callback():
-    # 1. 認可コード取得
     code = request.args.get("code")
-    state = request.args.get("state")
     if not code:
         return "No code provided", 400
 
-    # 2. トークンエンドポイントへPOST
     token_url = "https://api.line.me/oauth2/v2.1/token"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
@@ -70,30 +108,27 @@ def line_callback():
         "code": code,
         "redirect_uri": LINE_REDIRECT_URI,
         "client_id": LINE_CLIENT_ID,
-        "client_secret": LINE_CLIENT_SECRET
+        "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        "client_assertion": generate_client_assertion()
     }
 
     token_response = requests.post(token_url, headers=headers, data=data)
     print("token_response status:", token_response.status_code)
-    print("token_response json:", token_response.json())  # ⭐️ 追加
+    print("token_response json:", token_response.json())
+
     if token_response.status_code != 200:
         return f"Failed to get token: {token_response.text}", 400
 
     tokens = token_response.json()
     id_token = tokens.get("id_token")
 
-    # 3. IDトークン検証
     try:
         user_info = verify_id_token(id_token)
     except Exception as e:
         return f"IDトークン検証失敗: {str(e)}", 400
 
-    line_user_id = user_info["sub"]  # LINE UUID
-
-    # ここで Step 3 へ進む（Supabase users 照合/登録など）
-
     return jsonify({
         "message": "LINE IDトークン検証成功",
-        "line_user_id": line_user_id,
+        "line_user_id": user_info["sub"],
         "user_info": user_info
     })
