@@ -1,25 +1,24 @@
 import os
 import time
 import requests
+import tempfile
 from flask import Blueprint, request, redirect, jsonify
 from jose import jwt as jose_jwt
 from jwcrypto import jwt as jw_jwt, jwk
-import tempfile
 
-# Blueprint 定義
+# === 0. Blueprint 定義 ===
 login_bp = Blueprint("login", __name__, url_prefix="/login")
 
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
-LINE_CLIENT_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
+LINE_JWT_KID = os.getenv("LINE_JWT_KID")  # 公開鍵登録で発行されたkidを環境変数から取得
 
 # === 2. PRIVATE / PUBLIC KEY を tempfile に書き出し ===
 private_key_content = os.getenv("PRIVATE_KEY_CONTENT")
 if not private_key_content:
     raise Exception("PRIVATE_KEY_CONTENT not set")
-
 with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
     tmp.write(private_key_content)
     PRIVATE_KEY_PATH = tmp.name
@@ -27,7 +26,6 @@ with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
 public_key_content = os.getenv("PUBLIC_KEY_CONTENT")
 if not public_key_content:
     raise Exception("PUBLIC_KEY_CONTENT not set")
-
 with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
     tmp.write(public_key_content)
     PUBLIC_KEY_PATH = tmp.name
@@ -46,13 +44,14 @@ def generate_client_assertion():
         "token_exp": 600
     }
 
-    token = jw_jwt.JWT(header={
-        "alg": "RS256",
-        "typ": "JWT",
-        # TODO: kid は実際にLINE Developersの公開鍵登録で払い出された値をセット
-        "kid": "YOUR_KID_VALUE"
-    }, claims=payload)
-
+    token = jw_jwt.JWT(
+        header={
+            "alg": "RS256",
+            "typ": "JWT",
+            "kid": LINE_JWT_KID  # ⭐️ 環境変数からkidをセット
+        },
+        claims=payload
+    )
     token.make_signed_token(key)
     return token.serialize()
 
@@ -71,7 +70,6 @@ def verify_id_token(id_token: str):
     unverified_header = jose_jwt.get_unverified_header(id_token)
     kid = unverified_header["kid"]
     public_key = get_line_public_key(kid)
-
     payload = jose_jwt.decode(
         id_token,
         public_key,
@@ -81,7 +79,7 @@ def verify_id_token(id_token: str):
     )
     return payload
 
-# === 6. ログイン開始 ===
+# === 6. ログイン開始エンドポイント ===
 @login_bp.route("/line")
 def login_line():
     line_auth_url = (
@@ -89,12 +87,12 @@ def login_line():
         f"?response_type=code"
         f"&client_id={LINE_CLIENT_ID}"
         f"&redirect_uri={LINE_REDIRECT_URI}"
-        f"&state=test_state"
+        f"&state=test_state"  # TODO: CSRF対策でランダム生成する
         f"&scope=profile%20openid"
     )
     return redirect(line_auth_url)
 
-# === 7. コールバック ===
+# === 7. コールバックエンドポイント ===
 @login_bp.route("/line/callback")
 def line_callback():
     code = request.args.get("code")
