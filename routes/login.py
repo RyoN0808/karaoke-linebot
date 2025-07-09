@@ -12,24 +12,15 @@ login_bp = Blueprint("login", __name__, url_prefix="/login")
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
-LINE_JWKS_URL = "https://api.line.me/oauth2/v2.1/certs"
 LINE_JWT_KID = os.getenv("LINE_JWT_KID")  # 公開鍵登録で発行されたkidを環境変数から取得
 
-
-# === 2. PRIVATE / PUBLIC KEY を tempfile に書き出し ===
+# === 2. PRIVATE KEY を tempfile に書き出し ===
 private_key_content = os.getenv("PRIVATE_KEY_CONTENT")
 if not private_key_content:
     raise Exception("PRIVATE_KEY_CONTENT not set")
 with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
     tmp.write(private_key_content)
     PRIVATE_KEY_PATH = tmp.name
-
-public_key_content = os.getenv("PUBLIC_KEY_CONTENT")
-if not public_key_content:
-    raise Exception("PUBLIC_KEY_CONTENT not set")
-with tempfile.NamedTemporaryFile(delete=False, mode="w") as tmp:
-    tmp.write(public_key_content)
-    PUBLIC_KEY_PATH = tmp.name
 
 # === 3. client_assertion 生成 ===
 def generate_client_assertion():
@@ -40,52 +31,26 @@ def generate_client_assertion():
     payload = {
         "iss": LINE_CLIENT_ID,
         "sub": LINE_CLIENT_ID,
-        "aud": "https://api.line.me/oauth2/v2.1/token",
-        "exp": now + 300,
-        "token_exp": 600
+        "aud": "https://api.line.me/",  # ✅ 修正: LINE公式例に合わせ末尾スラッシュあり
+        "exp": now + 300  # 有効期限5分
     }
 
     token = jw_jwt.JWT(
         header={
             "alg": "RS256",
             "typ": "JWT",
-            "kid": LINE_JWT_KID  # ⭐️ 環境変数からkidをセット
+            "kid": LINE_JWT_KID
         },
         claims=payload
     )
     token.make_signed_token(key)
 
-    # ⭐️ ここで生成された JWT を確認出力
+    # JWTを確認出力
     token_str = token.serialize()
     print("Generated client_assertion JWT:", token_str)
-
     return token_str
 
-# === 4. LINE公開鍵取得 ===
-def get_line_public_key(kid: str):
-    jwks_response = requests.get(LINE_JWKS_URL)
-    jwks_response.raise_for_status()
-    jwks = jwks_response.json()
-    for key in jwks["keys"]:
-        if key["kid"] == kid:
-            return key
-    raise Exception("Public key not found for kid: " + kid)
-
-# === 5. IDトークン検証 ===
-def verify_id_token(id_token: str):
-    unverified_header = jose_jwt.get_unverified_header(id_token)
-    kid = unverified_header["kid"]
-    public_key = get_line_public_key(kid)
-    payload = jose_jwt.decode(
-        id_token,
-        public_key,
-        algorithms=["RS256"],
-        audience=LINE_CLIENT_ID,
-        issuer="https://access.line.me"
-    )
-    return payload
-
-# === 6. ログイン開始エンドポイント ===
+# === 4. ログイン開始エンドポイント ===
 @login_bp.route("/line")
 def login_line():
     line_auth_url = (
@@ -98,7 +63,7 @@ def login_line():
     )
     return redirect(line_auth_url)
 
-# === 7. コールバックエンドポイント ===
+# === 5. コールバックエンドポイント ===
 @login_bp.route("/line/callback")
 def line_callback():
     code = request.args.get("code")
@@ -126,8 +91,15 @@ def line_callback():
     tokens = token_response.json()
     id_token = tokens.get("id_token")
 
+    # === 6. IDトークン検証 ===
     try:
-        user_info = verify_id_token(id_token)
+        user_info = jose_jwt.decode(
+            id_token,
+            requests.get("https://api.line.me/oauth2/v2.1/certs").json(),
+            algorithms=["RS256"],
+            audience=LINE_CLIENT_ID,
+            issuer="https://access.line.me"
+        )
     except Exception as e:
         return f"IDトークン検証失敗: {str(e)}", 400
 
