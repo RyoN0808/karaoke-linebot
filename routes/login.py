@@ -74,6 +74,8 @@ def line_callback():
     }
 
     token_response = requests.post(token_url, headers=headers, data=data)
+    print("token_response status:", token_response.status_code)
+    print("token_response json:", token_response.json())  # ⭐️ 追加
     if token_response.status_code != 200:
         return f"Failed to get token: {token_response.text}", 400
 
