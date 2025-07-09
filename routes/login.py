@@ -39,7 +39,7 @@ def generate_client_assertion():
     payload = {
         "iss": LINE_CLIENT_ID,
         "sub": LINE_CLIENT_ID,
-        "aud": "https://api.line.me/",
+        "aud": "https://api.line.me/oauth2/v2.1/token",
         "exp": now + 300,
         "token_exp": 600
     }
@@ -111,6 +111,7 @@ def line_callback():
         "code": code,
         "redirect_uri": LINE_REDIRECT_URI,
         "client_id": LINE_CLIENT_ID,
+        "client_secret": LINE_CLIENT_SECRET, 
         "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
         "client_assertion": generate_client_assertion()
     }
