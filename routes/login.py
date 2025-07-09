@@ -33,6 +33,7 @@ def generate_client_assertion():
         "sub": LINE_CLIENT_ID,
         "aud": "https://api.line.me/",  # 公式推奨aud
         "exp": now + 300  # 有効期限5分
+        "token_exp": 86400
     }
 
     token = jw_jwt.JWT(
