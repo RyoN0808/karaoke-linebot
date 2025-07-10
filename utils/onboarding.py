@@ -20,25 +20,28 @@ def get_welcome_message(user_name: str) -> str:
 
 def handle_user_onboarding(user_id: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
     """
-    LINE sub ID を Supabase users.id に登録
+    LINE sub ID を Supabase users.id に登録し、リッチメニューを紐付け、
+    ウェルカムメッセージを送信する完全フロー
     """
     try:
-    supabase.table("users").upsert({
-        "id": user_id,
-        "name": user_name,
-        "user_code": user_code,
-        "score_count": 0
-    }).execute()
+        # Supabase にユーザー登録（または更新）
+        user_code = generate_unique_user_code()
+        supabase.table("users").upsert({
+            "id": user_id,
+            "name": user_name,
+            "user_code": user_code,
+            "score_count": 0
+        }).execute()
 
-    # リッチメニュー作成と紐付け（v3では非対応のため一旦コメントアウト）
-    # create_and_link_rich_menu(user_id)
+        # リッチメニューを紐付け
+        create_and_link_rich_menu(user_id)
 
-    # ウェルカムメッセージ送信
-    welcome_text = get_welcome_message(user_name)
-    messaging_api.reply_message(ReplyMessageRequest(
-        reply_token=reply_token,
-        messages=[TextMessage(text=welcome_text)]
-    ))
+        # ウェルカムメッセージ送信
+        welcome_text = get_welcome_message(user_name)
+        messaging_api.reply_message(ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(text=welcome_text)]
+        ))
 
-except Exception:
-    logging.exception("❌ Onboarding failed")
+    except Exception:
+        logging.exception("❌ Onboarding failed")
