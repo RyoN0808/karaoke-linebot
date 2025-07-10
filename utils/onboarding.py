@@ -18,27 +18,23 @@ def get_welcome_message(user_name: str) -> str:
         "ぜひお試しください！✨"
     )
 
-def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
+def handle_user_onboarding(user_id: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
     """
-    ユーザー登録時に LINE Login の sub を user_id として使用する実装
-
-    :param line_sub: LINE Login で取得した sub
-    :param user_name: ユーザー名
-    :param messaging_api: Messaging API インスタンス
-    :param reply_token: リプライトークン
+    LINE sub ID を Supabase users.id に登録
     """
     try:
-        # Supabase にユーザー登録（または更新）
         user_code = generate_unique_user_code()
+
+        # Supabase にユーザー登録（または更新）
         supabase.table("users").upsert({
-            "id": line_sub,  # ここで LINE Login sub を使用
+            "id": user_id,           # ここで LINE Login sub を user_id として登録
             "name": user_name,
             "user_code": user_code,
             "score_count": 0
         }).execute()
 
-        # リッチメニューの作成とユーザーへの紐付け
-        create_and_link_rich_menu(line_sub)
+        # リッチメニュー作成とユーザーへの紐付け
+        create_and_link_rich_menu(user_id)
 
         # ウェルカムメッセージ送信
         welcome_text = get_welcome_message(user_name)
@@ -48,5 +44,4 @@ def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: Messagi
         ))
 
     except Exception:
-        # 致命的でないためエラーはログ出力のみに留める
         logging.exception("❌ Onboarding failed")
