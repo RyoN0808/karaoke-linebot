@@ -23,26 +23,22 @@ def handle_user_onboarding(user_id: str, user_name: str, messaging_api: Messagin
     LINE sub ID を Supabase users.id に登録
     """
     try:
-        user_code = generate_unique_user_code()
+    supabase.table("users").upsert({
+        "id": user_id,
+        "name": user_name,
+        "user_code": user_code,
+        "score_count": 0
+    }).execute()
 
-        # Supabase にユーザー登録（または更新）
-        supabase.table("users").upsert({
-            "id": user_id,  # LINE Login sub ID を id に設定
-            "name": user_name,
-            "user_code": user_code,
-            "score_count": 0
-        }).execute()
+    # リッチメニュー作成と紐付け（v3では非対応のため一旦コメントアウト）
+    # create_and_link_rich_menu(user_id)
 
-        # リッチメニューの作成とユーザーへの紐付け
-        create_and_link_rich_menu(user_id)
+    # ウェルカムメッセージ送信
+    welcome_text = get_welcome_message(user_name)
+    messaging_api.reply_message(ReplyMessageRequest(
+        reply_token=reply_token,
+        messages=[TextMessage(text=welcome_text)]
+    ))
 
-        # ウェルカムメッセージ送信
-        welcome_text = get_welcome_message(user_name)
-        messaging_api.reply_message(ReplyMessageRequest(
-            reply_token=reply_token,
-            messages=[TextMessage(text=welcome_text)]
-        ))
-
-    except Exception:
-        # 致命的でないためエラーはログ出力のみに留める
-        logging.exception("❌ Onboarding failed")
+except Exception:
+    logging.exception("❌ Onboarding failed")
