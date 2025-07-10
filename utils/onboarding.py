@@ -27,13 +27,13 @@ def handle_user_onboarding(user_id: str, user_name: str, messaging_api: Messagin
 
         # Supabase にユーザー登録（または更新）
         supabase.table("users").upsert({
-            "id": user_id,           # ここで LINE Login sub を user_id として登録
+            "id": user_id,  # LINE Login sub ID を id に設定
             "name": user_name,
             "user_code": user_code,
             "score_count": 0
         }).execute()
 
-        # リッチメニュー作成とユーザーへの紐付け
+        # リッチメニューの作成とユーザーへの紐付け
         create_and_link_rich_menu(user_id)
 
         # ウェルカムメッセージ送信
@@ -44,4 +44,5 @@ def handle_user_onboarding(user_id: str, user_name: str, messaging_api: Messagin
         ))
 
     except Exception:
+        # 致命的でないためエラーはログ出力のみに留める
         logging.exception("❌ Onboarding failed")
