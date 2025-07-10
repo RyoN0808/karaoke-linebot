@@ -1,7 +1,6 @@
 import os
 import time
 import requests
-import tempfile
 from flask import Blueprint, request, redirect, jsonify
 from jose import jwt as jose_jwt
 
@@ -10,22 +9,23 @@ login_bp = Blueprint("login", __name__, url_prefix="/login")
 
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
-LINE_CLIENT_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
+LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  # ここ変更
 
-# === 2. ログイン開始エンドポイント ===
-@login_bp.route("/line")
-def login_line():
-    state = "test_state"  # TODO: ランダム生成推奨
-    line_auth_url = (
-        f"https://access.line.me/oauth2/v2.1/authorize"
-        f"?response_type=code"
-        f"&client_id={LINE_CLIENT_ID}"
-        f"&redirect_uri={LINE_REDIRECT_URI}"
-        f"&state={state}"
-        f"&scope=profile%20openid"
-    )
-    return redirect(line_auth_url)
+# === 2. client_assertion 生成（HS256）===
+def generate_client_assertion():
+    now = int(time.time())
+    payload = {
+        "iss": LINE_CLIENT_ID,
+        "sub": LINE_CLIENT_ID,
+        "aud": "https://api.line.me/",
+        "exp": now + 300  # 有効期限5分
+    }
+
+    token = jose_jwt.encode(payload, LINE_CHANNEL_SECRET, algorithm="HS256")
+
+    print("Generated client_assertion JWT:", token)
+    return token
 
 # === 3. access_token verify ===
 def verify_access_token(access_token: str):
@@ -38,14 +38,26 @@ def verify_access_token(access_token: str):
         raise Exception(f"Access token invalid: {response.text}")
     return response.json()
 
-# === 4. コールバックエンドポイント ===
+# === 4. ログイン開始エンドポイント ===
+@login_bp.route("/line")
+def login_line():
+    line_auth_url = (
+        f"https://access.line.me/oauth2/v2.1/authorize"
+        f"?response_type=code"
+        f"&client_id={LINE_CLIENT_ID}"
+        f"&redirect_uri={LINE_REDIRECT_URI}"
+        f"&state=test_state"  # TODO: CSRF対策でランダム生成する
+        f"&scope=profile%20openid"
+    )
+    return redirect(line_auth_url)
+
+# === 5. コールバックエンドポイント ===
 @login_bp.route("/line/callback")
 def line_callback():
     code = request.args.get("code")
     if not code:
         return "No code provided", 400
 
-    # === 5. トークン取得 ===
     token_url = "https://api.line.me/oauth2/v2.1/token"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
@@ -53,7 +65,7 @@ def line_callback():
         "code": code,
         "redirect_uri": LINE_REDIRECT_URI,
         "client_id": LINE_CLIENT_ID,
-        "client_secret": LINE_CLIENT_SECRET
+        "client_secret": LINE_CHANNEL_SECRET  # HS256ではclient_secretを使う
     }
 
     token_response = requests.post(token_url, headers=headers, data=data)
@@ -75,11 +87,10 @@ def line_callback():
 
     # === 7. IDトークン検証 ===
     try:
-        certs = requests.get("https://api.line.me/oauth2/v2.1/certs").json()
         user_info = jose_jwt.decode(
             id_token,
-            certs,
-            algorithms=["RS256"],
+            LINE_CHANNEL_SECRET,
+            algorithms=["HS256"],
             audience=LINE_CLIENT_ID,
             issuer="https://access.line.me"
         )
