@@ -24,9 +24,6 @@ def generate_client_assertion():
 
     token = jose_jwt.encode(payload, LINE_CHANNEL_SECRET, algorithm="HS256")
 
-    print("Generated client_assertion JWT:", token)
-    return token
-
 # === 3. access_token verify ===
 def verify_access_token(access_token: str):
     verify_url = "https://api.line.me/oauth2/v2.1/verify"
