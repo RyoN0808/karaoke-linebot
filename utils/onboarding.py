@@ -18,23 +18,25 @@ def get_welcome_message(user_name: str) -> str:
         "ぜひお試しください！✨"
     )
 
-def handle_user_onboarding(user_id: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
+def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
     """
-    LINE sub ID を Supabase users.id に登録し、リッチメニューを紐付け、
-    ウェルカムメッセージを送信する完全フロー
+    LINE sub ID を Supabase users.id に登録（共通IDとして使用）
     """
     try:
-        # Supabase にユーザー登録（または更新）
         user_code = generate_unique_user_code()
-        supabase.table("users").upsert({
-            "id": user_id,
-            "name": user_name,
-            "user_code": user_code,
-            "score_count": 0
-        }).execute()
 
-        # リッチメニューを紐付け
-        create_and_link_rich_menu(user_id)
+        # Supabase にユーザー登録（既存なら更新しない、初回のみ登録）
+        existing = supabase.table("users").select("id").eq("id", line_sub).execute()
+        if not existing.data:
+            supabase.table("users").insert({
+                "id": line_sub,
+                "name": user_name,
+                "user_code": user_code,
+                "score_count": 0
+            }).execute()
+
+        # リッチメニューの作成とユーザーへの紐付け
+        create_and_link_rich_menu(line_sub)
 
         # ウェルカムメッセージ送信
         welcome_text = get_welcome_message(user_name)
