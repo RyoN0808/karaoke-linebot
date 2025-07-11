@@ -10,7 +10,7 @@ login_bp = Blueprint("login", __name__, url_prefix="/login")
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
-LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  # ここ変更
+LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  
 
 # === 2. client_assertion 生成（HS256）===
 def generate_client_assertion():
