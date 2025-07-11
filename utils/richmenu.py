@@ -1,4 +1,5 @@
 import os
+from linebot.v3.messaging.api.rich_menu_api import RichMenuApi
 from linebot.v3.messaging import MessagingApi, Configuration, ApiClient
 from linebot.v3.messaging.models import (
     RichMenuRequest,
