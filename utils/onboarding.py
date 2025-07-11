@@ -1,12 +1,10 @@
 import logging
-from linebot.v3.messaging import MessagingApi, Configuration, ApiClient
-from linebot.v3.messaging.models import ReplyMessageRequest, TextMessage
-from supabase_client import supabase
+from linebot.v3.messaging import (
+    MessagingApi, ReplyMessageRequest, TextMessage
+)
 from utils.user_code import generate_unique_user_code
 from utils.richmenu import create_and_link_rich_menu
-import os
-
-logging.basicConfig(level=logging.INFO)
+from supabase_client import supabase
 
 def get_welcome_message(user_name: str) -> str:
     return (
@@ -21,16 +19,27 @@ def get_welcome_message(user_name: str) -> str:
         "ぜひお試しください！✨"
     )
 
-def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
+def handle_user_onboarding(
+    line_sub: str,
+    user_name: str,
+    messaging_api: MessagingApi,
+    reply_token: str
+):
     """
-    LINE Login で取得した sub を Supabase users.id に使い、
-    リッチメニューの紐付けとウェルカムメッセージを送信します。
+    フォロー時のオンボーディング処理。
+    - Supabase へ登録
+    - リッチメニュー作成＆紐付け
+    - ウェルカムメッセージ送信
     """
     try:
-        # 1) Supabase にユーザー登録 or 既存か確認
+        # 1. Supabase 登録
         user_code = generate_unique_user_code()
-        exists = supabase.table("users").select("id").eq("id", line_sub).execute()
-        if not exists.data:
+        existing = supabase.table("users") \
+            .select("id") \
+            .eq("id", line_sub) \
+            .execute()
+
+        if not existing.data:
             logging.info(f"Supabase に新規ユーザー登録: {line_sub}")
             supabase.table("users").insert({
                 "id": line_sub,
@@ -41,20 +50,18 @@ def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: Messagi
         else:
             logging.info(f"ユーザー {line_sub} は既に登録済み")
 
-        # 2) リッチメニュー紐付け
-        #    WebhookHandler からは MessagingApi が渡されているはずなので再生成不要
+        # 2. リッチメニュー作成＆紐付け
         logging.info(f"ユーザー {line_sub} にリッチメニューを紐付け")
         create_and_link_rich_menu(line_sub, messaging_api)
 
-        # 3) ウェルカムメッセージ送信
+        # 3. ウェルカムメッセージ送信
         welcome = get_welcome_message(user_name)
-        messaging_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[TextMessage(text=welcome)]
-            )
-        )
+        messaging_api.reply_message(ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(text=welcome)]
+        ))
         logging.info(f"オンボーディング完了: {line_sub}")
 
     except Exception:
-        logging.exception(f"❌ Onboarding failed for {line_sub}")
+        logging.exception(f"❌ Onboarding failed for user {line_sub}")
+        # 必要に応じてユーザーへエラーメッセージを返す、など
