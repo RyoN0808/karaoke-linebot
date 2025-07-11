@@ -37,7 +37,7 @@ def create_and_link_rich_menu(user_id=None):
 
         # 🖼️ 画像アップロード
         with open("static/richmenu.png", 'rb') as f:
-            messaging_api.update_rich_menu_image( # ここを修正しました
+            messaging_api.set_rich_menu_image(
                 rich_menu_id=rich_menu_id,
                 file=f,
                 content_type="image/png"
