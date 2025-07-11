@@ -9,10 +9,9 @@ from supabase_client import supabase
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.webhooks import MessageEvent, FollowEvent, TextMessageContent
-from linebot.v3.messaging import MessagingApi, Configuration, ApiClient
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
 from linebot.v3.messaging.models import ReplyMessageRequest, TextMessage
 from linebot.exceptions import InvalidSignatureError
-from linebot import LineBotApi
 
 from utils.user_code import generate_unique_user_code
 from utils.stats import build_user_stats_message
@@ -27,61 +26,34 @@ from utils.ocr_utils import (
 )
 from utils.field_map import get_supabase_field
 
-print("ENV_MODE:", os.getenv("ENV_MODE"))  # デバッグ
+# Load environment
 env_mode = os.getenv("ENV_MODE", "dev")
-
-if env_mode == "prod":
-    load_dotenv(".env.prod")
-    print("Loaded .env.prod")
-else:
-    load_dotenv(".env.dev")
-    print("Loaded .env.dev")
-
-print("LINE_LOGIN_CLIENT_ID:", os.getenv("LINE_LOGIN_CLIENT_ID"))
-
-# その他既存の import
-
-env_mode = os.getenv("ENV_MODE", "dev")  # デフォルトは dev
-
-if env_mode == "prod":
-    load_dotenv(".env.prod")
-else:
-    load_dotenv(".env.dev")
-
-# ここから既存のコード
-
-
-# --- 初期設定 ---
-app = Flask(__name__)
-env_file = os.getenv("ENV_FILE", ".env.dev")
-load_dotenv(dotenv_path=env_file)
+dotenv_path = ".env.prod" if env_mode == "prod" else ".env.dev"
+load_dotenv(dotenv_path)
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
+# Logging
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 
+# Flask app
+app = Flask(__name__)
+
+# LINE config
 configuration = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
-line_bot_api_v2 = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+
+# In-memory history for rate limiting
 user_send_history = {}
 
-# --- ルーティング ---
-
+# Register login blueprint
 from routes.login import login_bp
-
-app.register_blueprint(login_bp)
+app.register_blueprint(login_bp, url_prefix="/login")
 
 @app.route("/", methods=["GET"])
 def index():
     return "✅ Flask x LINE Bot is running!"
-
-@app.route("/create-richmenu", methods=["GET"])
-def create_richmenu():
-    try:
-        return f"✅ リッチメニュー作成成功｜ID: {create_and_link_rich_menu()}"
-    except Exception as e:
-        return f"❌ リッチメニュー作成失敗: {e}", 500
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -96,23 +68,22 @@ def webhook():
         abort(400)
     return "OK"
 
-# --- イベント処理 ---
 @handler.add(FollowEvent)
 def handle_follow(event):
     user_id = event.source.user_id
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
+    with ApiClient(configuration) as client:
+        messaging_api = MessagingApi(client)
         profile = messaging_api.get_profile(user_id)
-        name = profile.display_name or "unknown"
+        name = profile.display_name or "Unknown"
         handle_user_onboarding(user_id, name, messaging_api, event.reply_token)
 
 @handler.add(MessageEvent)
 def handle_event(event):
-    msg = event.message
-    if hasattr(msg, "content_provider") and msg.content_provider.type != "none":
-        handle_image(event)
-    elif isinstance(msg, TextMessageContent):
+    # Distinguish text vs image
+    if isinstance(event.message, TextMessageContent):
         handle_text(event)
+    else:
+        handle_image(event)
 
 # --- 画像処理 ---
 def handle_image(event):
@@ -127,15 +98,19 @@ def handle_image(event):
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
-        content = line_bot_api_v2.get_message_content(event.message.id)
+        # Download image via v3 SDK
+        with ApiClient(configuration) as client:
+            messaging_api = MessagingApi(client)
+            content = messaging_api.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
             for chunk in content.iter_content():
                 f.write(chunk)
 
-        client = vision.ImageAnnotatorClient()
+        # OCR
+        client_vision = vision.ImageAnnotatorClient()
         with open(image_path, "rb") as f:
-            texts = client.text_detection(image=vision.Image(content=f.read())).text_annotations
+            texts = client_vision.text_detection(image=vision.Image(content=f.read())).text_annotations
 
         score = _extract_score(texts)
         parsed = parse_text_with_gpt(texts[0].description if texts else "")
@@ -149,11 +124,12 @@ def handle_image(event):
             return
 
         now_iso = datetime.utcnow().isoformat()
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
+        with ApiClient(configuration) as client:
+            messaging_api = MessagingApi(client)
             profile = messaging_api.get_profile(user_id)
-            user_name = profile.display_name or "unknown"
+            user_name = profile.display_name or "Unknown"
 
+            # Supabase upsert
             u = supabase.table("users").select("score_count,user_code").eq("id", user_id).maybe_single().execute().data or {}
             supabase.table("users").upsert({
                 "id": user_id,
@@ -162,7 +138,6 @@ def handle_image(event):
                 "score_count": (u.get("score_count") or 0) + 1,
                 "last_score_at": now_iso
             }).execute()
-
             supabase.table("scores").insert({
                 "user_id": user_id,
                 "score": score,
@@ -173,7 +148,10 @@ def handle_image(event):
             }).execute()
 
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
-            reply = f"✅ スコア登録完了！\n点数: {score}\n曲名: {parsed.get('song_name') or '---'}\nアーティスト: {parsed.get('artist_name') or '---'}\n\n{stats}"
+            reply = (
+                f"✅ スコア登録完了！\n点数: {score}\n曲名: {parsed.get('song_name') or '---'}"
+                f"\nアーティスト: {parsed.get('artist_name') or '---'}\n\n{stats}"
+            )
             _reply(event.reply_token, reply)
 
     except Exception:
@@ -184,22 +162,14 @@ def handle_image(event):
             os.remove(image_path)
 
 # --- テキスト処理 ---
-@handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
     from linebot.v3.messaging.models import TextMessage as V3TextMessage
-    from supabase_client import supabase
-    from utils.ocr_utils import (
-        is_correction_command, get_correction_menu,
-        is_correction_field_selection, set_user_correction_step,
-        get_user_correction_step, clear_user_correction_step,
-        validate_score_range
-    )
 
     user_id = event.source.user_id
     text = event.message.text.strip()
 
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
+    with ApiClient(configuration) as client:
+        messaging_api = MessagingApi(client)
 
         try:
             # 名前変更開始
@@ -210,7 +180,7 @@ def handle_text(event):
                 }).execute()
                 messaging_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[V3TextMessage(text="📝 新しい名前を入力してください")]
+                    messages=[V3TextMessage(text="📝 新しい名前を入力してください")]  
                 ))
                 return
 
@@ -228,21 +198,14 @@ def handle_text(event):
 
             # 成績確認
             if text == "成績確認":
-                try:
-                    stats_msg = build_user_stats_message(user_id)
-                    messaging_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[V3TextMessage(text=stats_msg)]
-                    ))
-                except Exception:
-                    logging.exception("❌ 成績確認の生成に失敗しました")
-                    messaging_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[V3TextMessage(text="⚠️ 成績情報の取得に失敗しました。")]
-                    ))
+                stats_msg = build_user_stats_message(user_id)
+                messaging_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[V3TextMessage(text=stats_msg)]
+                ))
                 return
 
-            # 修正メニュー表示
+            # 修正フロー
             if is_correction_command(text):
                 clear_user_correction_step(user_id)
                 messaging_api.reply_message(ReplyMessageRequest(
@@ -251,7 +214,6 @@ def handle_text(event):
                 ))
                 return
 
-            # 修正項目選択
             if is_correction_field_selection(text):
                 set_user_correction_step(user_id, text)
                 messaging_api.reply_message(ReplyMessageRequest(
@@ -260,7 +222,6 @@ def handle_text(event):
                 ))
                 return
 
-            # 修正入力反映
             field = get_user_correction_step(user_id)
             if field:
                 value = text
@@ -270,13 +231,13 @@ def handle_text(event):
                         if not validate_score_range(value):
                             messaging_api.reply_message(ReplyMessageRequest(
                                 reply_token=event.reply_token,
-                                messages=[V3TextMessage(text="⚠️ スコアは30.000以上100.000未満で入力してください。")]
+                                messages=[V3TextMessage(text="⚠️ スコアは30.000以上100.000未満で入力してください。")]  
                             ))
                             return
                     except ValueError:
                         messaging_api.reply_message(ReplyMessageRequest(
                             reply_token=event.reply_token,
-                            messages=[V3TextMessage(text="⚠️ スコアが数値として認識できませんでした。")]
+                            messages=[V3TextMessage(text="⚠️ スコアが数値として認識できませんでした。")]  
                         ))
                         return
 
@@ -303,7 +264,7 @@ def handle_text(event):
                     ))
                     return
 
-            # 処理対象外
+            # それ以外
             messaging_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[V3TextMessage(text="⚠️ このメッセージは処理対象外です。")]
@@ -318,11 +279,11 @@ def handle_text(event):
 
 # --- ヘルパー ---
 def _reply(token, text):
-    with ApiClient(configuration) as api_client:
-        MessagingApi(api_client).reply_message(
+    with ApiClient(configuration) as client:
+        MessagingApi(client).reply_message(
             ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)])
         )
 
 # --- 実行 ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=DEBUG)
