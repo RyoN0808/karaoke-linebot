@@ -8,7 +8,7 @@ from linebot.v3.messaging.models import (
     MessageAction,
 )
 
-def create_and_link_rich_menu(user_id: str, messaging_api: MessagingApi = None) -> str:
+def create_and_link_rich_menu(user_id: str, rich_menu_api: RichMenuApi = None) -> str:
     """
     リッチメニューを作成し、画像アップロード・ユーザー／デフォルトへの紐付けまで行います。
     - user_id を渡すと個別ユーザーへ。
