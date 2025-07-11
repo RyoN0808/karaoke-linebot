@@ -8,6 +8,9 @@ from google.cloud import vision
 from supabase_client import supabase
 
 from routes.login import login_bp
+from routes.api import api_bp
+from routes.scores import scores_bp
+
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.webhooks import MessageEvent, FollowEvent, TextMessageContent
@@ -29,6 +32,8 @@ from utils.ocr_utils import (
 )
 from utils.field_map import get_supabase_field
 
+
+
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
 load_dotenv(dotenv_path=env_file)
@@ -38,6 +43,8 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CRE
 app = Flask(__name__)
 # Blueprint 登録
 app.register_blueprint(login_bp)
+app.register_blueprint(api_bp)
+app.register_blueprint(scores_bp)
 
 # --- ロギング設定 ---
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
