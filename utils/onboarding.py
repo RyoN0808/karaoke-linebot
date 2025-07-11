@@ -1,13 +1,7 @@
 import logging
 import os
-from linebot.v3.messaging import (
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage,
-    ApiClient,
-    Configuration,
-    RichMenuApi # ← 正式名称はこちら
-)
+from linebot.v3.messaging import MessagingApi, ReplyMessageRequest, TextMessage, Configuration, ApiClient
+from linebot.v3.messaging.api.rich_menu_api import RichMenuApi
 from utils.user_code import generate_unique_user_code
 from utils.richmenu import create_and_link_rich_menu
 from supabase_client import supabase
@@ -28,12 +22,16 @@ def get_welcome_message(user_name: str) -> str:
     )
 
 def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: MessagingApi, reply_token: str):
+    """
+    LINE Login の sub を Supabase の users.id として登録し、
+    リッチメニューを紐付け、ウェルカムメッセージを送信します。
+    """
     try:
+        # 1) Supabase にユーザー登録（初回のみ）
         user_code = generate_unique_user_code()
-
         existing = supabase.table("users").select("id").eq("id", line_sub).execute()
         if not existing.data:
-            logging.info(f"ユーザー {line_sub} をSupabaseに新規登録します。")
+            logging.info(f"ユーザー {line_sub} を Supabase に新規登録します。")
             supabase.table("users").insert({
                 "id": line_sub,
                 "name": user_name,
@@ -41,27 +39,29 @@ def handle_user_onboarding(line_sub: str, user_name: str, messaging_api: Messagi
                 "score_count": 0
             }).execute()
         else:
-            logging.info(f"ユーザー {line_sub} は既にSupabaseに登録済みです。")
+            logging.info(f"ユーザー {line_sub} は既に登録済みです。")
 
-        # LINE_CHANNEL_ACCESS_TOKEN は環境変数から取得
-        channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-        if not channel_access_token:
-            logging.error("LINE_CHANNEL_ACCESS_TOKENが設定されていません。")
-            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is not set.")
-
-        config = Configuration(access_token=channel_access_token)
+        # 2) RichMenuApi の準備
+        channel_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+        if not channel_token:
+            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN が設定されていません。")
+        config = Configuration(access_token=channel_token)
         api_client = ApiClient(config)
-        rich_menu_api = RichMenuApi(api_client) # ← 正しいクラス名に修正
+        rich_menu_api = RichMenuApi(api_client)
 
+        # 3) リッチメニューを作成＆ユーザーに紐付け
         logging.info(f"ユーザー {line_sub} にリッチメニューを紐付けます。")
         create_and_link_rich_menu(line_sub, rich_menu_api)
 
+        # 4) ウェルカムメッセージ送信
         welcome_text = get_welcome_message(user_name)
         logging.info(f"ユーザー {line_sub} にウェルカムメッセージを送信します。")
-        messaging_api.reply_message(ReplyMessageRequest(
-            reply_token=reply_token,
-            messages=[TextMessage(text=welcome_text)]
-        ))
+        messaging_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=welcome_text)]
+            )
+        )
         logging.info(f"ユーザー {line_sub} のオンボーディングが完了しました。")
 
     except Exception as e:
