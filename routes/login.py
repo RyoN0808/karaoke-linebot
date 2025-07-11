@@ -1,3 +1,5 @@
+# routes/login.py
+
 import os
 import time
 import requests
@@ -21,8 +23,8 @@ def generate_client_assertion():
         "aud": "https://api.line.me/",
         "exp": now + 300  # 有効期限5分
     }
-
     token = jose_jwt.encode(payload, LINE_CHANNEL_SECRET, algorithm="HS256")
+    return token
 
 # === 3. access_token verify ===
 def verify_access_token(access_token: str):
@@ -35,7 +37,21 @@ def verify_access_token(access_token: str):
         raise Exception(f"Access token invalid: {response.text}")
     return response.json()
 
-# === 4. ログイン開始エンドポイント ===
+# === 4. IDトークン検証 ===
+def verify_id_token(id_token: str):
+    try:
+        user_info = jose_jwt.decode(
+            id_token,
+            LINE_CHANNEL_SECRET,
+            algorithms=["HS256"],
+            audience=LINE_CLIENT_ID,
+            issuer="https://access.line.me"
+        )
+        return user_info
+    except Exception as e:
+        raise Exception(f"IDトークン検証失敗: {str(e)}")
+
+# === 5. ログイン開始エンドポイント ===
 @login_bp.route("/line")
 def login_line():
     line_auth_url = (
@@ -48,7 +64,7 @@ def login_line():
     )
     return redirect(line_auth_url)
 
-# === 5. コールバックエンドポイント ===
+# === 6. コールバックエンドポイント ===
 @login_bp.route("/line/callback")
 def line_callback():
     code = request.args.get("code")
@@ -76,27 +92,20 @@ def line_callback():
     access_token = tokens.get("access_token")
     id_token = tokens.get("id_token")
 
-    # === 6. access_token verify ===
+    # === 7. access_token verify ===
     try:
         verify_access_token(access_token)
     except Exception as e:
         return f"Access token verify failed: {str(e)}", 400
 
-    # === 7. IDトークン検証 ===
+    # === 8. IDトークン検証 ===
     try:
-        user_info = jose_jwt.decode(
-            id_token,
-            LINE_CHANNEL_SECRET,
-            algorithms=["HS256"],
-            audience=LINE_CLIENT_ID,
-            issuer="https://access.line.me"
-        )
+        user_info = verify_id_token(id_token)
     except Exception as e:
-        return f"IDトークン検証失敗: {str(e)}", 400
+        return str(e), 400
 
     return jsonify({
         "message": "LINE IDトークン検証成功",
         "line_user_id": user_info["sub"],
         "user_info": user_info
     })
-
