@@ -183,31 +183,94 @@ def handle_image(event):
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
-@handler.add(MessageEvent, message=TextMessageContent)
+@handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     user_id = event.source.user_id
     text = event.message.text.strip()
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
-        try:
-            if text == "名前変更":
-                supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
-                messaging_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text="📝 新しい名前を入力してください")]
-                ))
+
+    try:
+        # ----------------------
+        # 名前変更（開始）
+        # ----------------------
+        if text == "名前変更":
+            supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 新しい名前を入力してください"))
+            return
+
+        # ----------------------
+        # 名前変更（確定）
+        # ----------------------
+        name_req = supabase.table("name_change_requests").select("*").eq("user_id", user_id).maybe_single().execute()
+        if name_req and name_req.data and name_req.data.get("waiting"):
+            new_name = text
+            supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
+            supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！"))
+            return
+
+        # ----------------------
+        # 成績確認
+        # ----------------------
+        if text == "成績確認":
+            try:
+                stats_msg = build_user_stats_message(user_id)
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=stats_msg))
+            except Exception:
+                logging.exception("❌ 成績確認の生成に失敗しました")
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 成績情報の取得に失敗しました。"))
+            return
+
+        # ----------------------
+        # 修正メニュー表示
+        # ----------------------
+        if is_correction_command(text):
+            clear_user_correction_step(user_id)
+            line_bot_api.reply_message(event.reply_token, get_correction_menu())
+            return
+
+        # ----------------------
+        # 修正項目選択
+        # ----------------------
+        if is_correction_field_selection(text):
+            set_user_correction_step(user_id, text)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
+            return
+
+        # ----------------------
+        # 修正値の入力と反映
+        # ----------------------
+        field = get_user_correction_step(user_id)
+        if field:
+            value = text
+            if field == "スコア":
+                value = text.translate(str.maketrans("０１２３４５６７８９．", "0123456789."))
+                try:
+                    value = float(value)
+                except ValueError:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
+                    return
+
+            latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+            if latest.data:
+                score_id = latest.data[0]["id"]
+                supabase.table("scores").update({get_supabase_field(field): value}).eq("id", score_id).execute()
+
+                updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
+                clear_user_correction_step(user_id)
+
+                updated_data = updated.data
+                msg = (
+                    f"✅ 修正完了！\n"
+                    f"点数: {updated_data.get('score') or '---'}\n"
+                    f"曲名: {updated_data.get('song_name') or '---'}\n"
+                    f"アーティスト: {updated_data.get('artist_name') or '---'}"
+                )
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
                 return
 
-            messaging_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text="⚠️ このメッセージは処理対象外です。")]
-            ))
-        except Exception as e:
-            logging.exception(f"❌ テキスト処理エラー: {e}")
-            messaging_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text="❌ エラーが発生しました。もう一度お試しください。")]
-            ))
+    except Exception:
+        logging.exception("❌ テキスト処理中にエラーが発生しました")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ エラーが発生しました。"))
 
 def _reply(token, text):
     with ApiClient(configuration) as api_client:
