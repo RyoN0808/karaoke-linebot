@@ -24,7 +24,7 @@ from utils.onboarding import handle_user_onboarding
 from utils.gpt_parser import parse_text_with_gpt
 from utils.richmenu import create_and_link_rich_menu
 from utils.ocr_utils import _extract_score, validate_score_range
-from utils.musicbrainz import search_artist_in_musicbrainz
+from utils.handle_artist import register_artist_if_needed
 
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
@@ -134,11 +134,11 @@ def handle_image(event):
 
         now_iso = datetime.utcnow().isoformat()
         artist_name = parsed.get("artist_name")
-        mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
+        artist_info = register_artist_if_needed(artist_name) if artist_name else {}
 
-        musicbrainz_id = mb_result.get("musicbrainz_id") if mb_result else None
-        artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
-        genre_tags = mb_result.get("genre_tags") if mb_result else []
+        musicbrainz_id = artist_info.get("musicbrainz_id")
+        artist_name_normalized = artist_info.get("name")
+        genre_tags = artist_info.get("genre_tags", [])
 
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
