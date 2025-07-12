@@ -18,6 +18,7 @@ from linebot.v3.messaging.models import ReplyMessageRequest, TextMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot import LineBotApi
 
+from utils.field_map import get_supabase_field
 from utils.user_code import generate_unique_user_code
 from utils.stats import build_user_stats_message
 from utils.onboarding import handle_user_onboarding
