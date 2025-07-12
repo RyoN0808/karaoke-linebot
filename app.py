@@ -83,7 +83,12 @@ def handle_follow(event):
         messaging_api = MessagingApi(api_client)
         profile = messaging_api.get_profile(user_id)
         name = profile.display_name or "unknown"
-        handle_user_onboarding(user_id, name, event.reply_token, messaging_api)
+        handle_user_onboarding(
+            line_sub=user_id,
+            user_name=name,
+            messaging_api=messaging_api,
+            reply_token=event.reply_token
+        )
 
 @handler.add(MessageEvent)
 def handle_event(event):
