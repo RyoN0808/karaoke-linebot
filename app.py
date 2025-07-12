@@ -11,7 +11,6 @@ from routes.login import login_bp
 from routes.api import api_bp
 from routes.scores import scores_bp
 
-
 from linebot.v3 import WebhookHandler
 from linebot.v3.webhooks import MessageEvent, FollowEvent, TextMessageContent
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
@@ -24,15 +23,8 @@ from utils.stats import build_user_stats_message
 from utils.onboarding import handle_user_onboarding
 from utils.gpt_parser import parse_text_with_gpt
 from utils.richmenu import create_and_link_rich_menu
-from utils.ocr_utils import (
-    _extract_score, is_correction_command, get_correction_menu,
-    is_correction_field_selection, set_user_correction_step,
-    get_user_correction_step, clear_user_correction_step,
-    validate_score_range
-)
-from utils.field_map import get_supabase_field
-
-
+from utils.ocr_utils import _extract_score, validate_score_range
+from utils.musicbrainz import search_artist_in_musicbrainz  # ← 追加
 
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
@@ -41,17 +33,14 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CRE
 
 # --- Flask アプリケーション ---
 app = Flask(__name__)
-# Blueprint 登録
 app.register_blueprint(login_bp)
 app.register_blueprint(api_bp)
 app.register_blueprint(scores_bp)
 
 # --- ロギング設定 ---
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-logging.basicConfig(
-    level=logging.DEBUG if DEBUG else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s")
 
 # --- LINE SDK v3 初期化 ---
 configuration = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
@@ -104,7 +93,7 @@ def handle_event(event):
     elif isinstance(msg, TextMessageContent):
         handle_text(event)
 
-# --- 画像処理 ---
+# --- 画像処理（MusicBrainz連携統合版） ---
 def handle_image(event):
     image_path = None
     try:
@@ -117,16 +106,19 @@ def handle_image(event):
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
+        # 画像取得
         content = line_bot_api_v2.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
             for chunk in content.iter_content():
                 f.write(chunk)
 
+        # OCR解析
         client = vision.ImageAnnotatorClient()
         with open(image_path, "rb") as f:
             texts = client.text_detection(image=vision.Image(content=f.read())).text_annotations
 
+        # スコア・曲名・アーティスト名抽出
         score = _extract_score(texts)
         parsed = parse_text_with_gpt(texts[0].description if texts else "")
         parsed["score"] = score
@@ -139,6 +131,30 @@ def handle_image(event):
             return
 
         now_iso = datetime.utcnow().isoformat()
+
+                # --- MusicBrainz API でアーティスト情報取得 ---
+        artist_name = parsed.get("artist_name")
+        mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
+
+        musicbrainz_id = None
+        artist_name_normalized = None
+        genre_tags = []
+
+        if mb_result:
+            musicbrainz_id = mb_result.get("musicbrainz_id")
+            artist_name_normalized = mb_result.get("name_normalized")
+            genre_tags = mb_result.get("genre_tags")
+
+            # artists テーブルにキャッシュ
+            supabase.table("artists").upsert({
+                "musicbrainz_id": musicbrainz_id,
+                "name_raw": artist_name,
+                "name_normalized": artist_name_normalized,
+                "genre_tags": genre_tags
+            }).execute()
+
+
+        # ユーザー情報更新
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
             profile = messaging_api.get_profile(user_id)
@@ -153,21 +169,26 @@ def handle_image(event):
                 "last_score_at": now_iso
             }).execute()
 
+            # スコア登録（MusicBrainz結果含む）
             supabase.table("scores").insert({
                 "user_id": user_id,
                 "score": score,
                 "song_name": parsed.get("song_name"),
-                "artist_name": parsed.get("artist_name"),
+                "artist_name": artist_name,
+                "artist_name_normalized": artist_name_normalized,
+                "musicbrainz_id": musicbrainz_id,
+                "genre_tags": genre_tags,
                 "comment": None,
                 "created_at": now_iso
             }).execute()
 
+            # 成績返信
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
                 f"✅ スコア登録完了！\n"
                 f"点数: {score}\n"
                 f"曲名: {parsed.get('song_name') or '---'}\n"
-                f"アーティスト: {parsed.get('artist_name') or '---'}\n\n"
+                f"アーティスト: {artist_name_normalized or artist_name or '---'}\n\n"
                 f"{stats}"
             )
             _reply(event.reply_token, reply_text)
@@ -187,6 +208,7 @@ def handle_text(event):
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
         try:
+            # 名前変更コマンド
             if text == "名前変更":
                 supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
                 messaging_api.reply_message(ReplyMessageRequest(
@@ -195,9 +217,7 @@ def handle_text(event):
                 ))
                 return
 
-            # (以下、名前変更確定、成績確認、修正フローの処理は省略可)
-
-            # 対象外
+            # その他
             messaging_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text="⚠️ このメッセージは処理対象外です。")]
