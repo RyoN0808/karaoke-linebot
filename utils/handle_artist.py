@@ -5,10 +5,19 @@ from utils.musicbrainz import search_artist_in_musicbrainz
 
 def register_artist_if_needed(artist_name: str):
     from supabase import Client  # 念のため明示
+
+    artist_name = artist_name.strip()
+
     for attempt in range(3):
         try:
-            # クエリ発行
-            resp = supabase.table("artists").select("*").eq("name_raw", artist_name).maybe_single().execute()
+            # filter に変更して name_raw の正確一致を検索
+            resp = (
+                supabase.table("artists")
+                .select("*")
+                .filter("name_raw", "eq", artist_name)
+                .maybe_single()
+                .execute()
+            )
 
             # クエリ失敗チェック
             if not resp or not hasattr(resp, "data"):
@@ -17,7 +26,7 @@ def register_artist_if_needed(artist_name: str):
             if resp.data:
                 return resp.data
 
-            # 通信成功だが該当なし → MusicBrainz APIへ
+            # 該当なし → MusicBrainz APIへ
             mb_data = search_artist_in_musicbrainz(artist_name)
             if mb_data:
                 data = {
