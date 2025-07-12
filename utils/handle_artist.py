@@ -4,13 +4,11 @@ from supabase_client import supabase
 from utils.musicbrainz import search_artist_in_musicbrainz
 
 def register_artist_if_needed(artist_name: str):
-    from supabase import Client  # 念のため明示
-
     artist_name = artist_name.strip()
-
+    
     for attempt in range(3):
         try:
-            # filter に変更して name_raw の正確一致を検索
+            # Supabaseに既に登録されているか確認
             resp = (
                 supabase.table("artists")
                 .select("*")
@@ -19,28 +17,26 @@ def register_artist_if_needed(artist_name: str):
                 .execute()
             )
 
-            # クエリ失敗チェック
-            if not resp or not hasattr(resp, "data"):
-                raise ValueError("no data returned")
-
-            if resp.data:
+            if resp and resp.data:
                 return resp.data
 
-            # 該当なし → MusicBrainz APIへ
+            # MusicBrainz で検索（Supabaseに未登録の場合のみ）
             mb_data = search_artist_in_musicbrainz(artist_name)
-            if mb_data:
-                data = {
-                    "name_raw": artist_name,
-                    "name_normalized": mb_data["name_normalized"],
-                    "musicbrainz_id": mb_data["musicbrainz_id"],
-                    "genre_tags": mb_data["genre_tags"]
-                }
-            else:
-                data = {"name_raw": artist_name}
+            data = {
+                "name_raw": artist_name,
+                "name_normalized": mb_data["name_normalized"] if mb_data else None,
+                "musicbrainz_id": mb_data["musicbrainz_id"] if mb_data else None,
+                "genre_tags": mb_data["genre_tags"] if mb_data else None,
+            }
 
-            # Insert
-            inserted = supabase.table("artists").insert(data).execute()
-            return inserted.data[0] if inserted.data else data
+            # アトミックに insert or update（競合を避ける）
+            upserted = (
+                supabase.table("artists")
+                .upsert(data, on_conflict=["name_raw"])
+                .execute()
+            )
+
+            return upserted.data[0] if upserted.data else {"name_raw": artist_name}
 
         except Exception as e:
             logging.warning(f"⚠️ register_artist_if_needed retry {attempt + 1}/3 failed: {e}")
