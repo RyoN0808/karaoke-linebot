@@ -24,7 +24,7 @@ from utils.onboarding import handle_user_onboarding
 from utils.gpt_parser import parse_text_with_gpt
 from utils.richmenu import create_and_link_rich_menu
 from utils.ocr_utils import _extract_score, validate_score_range
-from utils.musicbrainz import search_artist_in_musicbrainz  # ← 追加
+from utils.musicbrainz import search_artist_in_musicbrainz
 
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
@@ -70,8 +70,8 @@ def webhook():
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    except Exception:
-        logging.exception("❌ Webhook error")
+    except Exception as e:
+        logging.exception(f"❌ Webhook error: {e}")
         abort(400)
     return "OK"
 
@@ -132,27 +132,13 @@ def handle_image(event):
 
         now_iso = datetime.utcnow().isoformat()
 
-                # --- MusicBrainz API でアーティスト情報取得 ---
+        # --- MusicBrainz API でアーティスト情報取得 ---
         artist_name = parsed.get("artist_name")
         mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
 
-        musicbrainz_id = None
-        artist_name_normalized = None
-        genre_tags = []
-
-        if mb_result:
-            musicbrainz_id = mb_result.get("musicbrainz_id")
-            artist_name_normalized = mb_result.get("name_normalized")
-            genre_tags = mb_result.get("genre_tags")
-
-            # artists テーブルにキャッシュ
-            supabase.table("artists").upsert({
-                "musicbrainz_id": musicbrainz_id,
-                "name_raw": artist_name,
-                "name_normalized": artist_name_normalized,
-                "genre_tags": genre_tags
-            }).execute()
-
+        musicbrainz_id = mb_result.get("musicbrainz_id") if mb_result else None
+        artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
+        genre_tags = mb_result.get("genre_tags") if mb_result else []
 
         # ユーザー情報更新
         with ApiClient(configuration) as api_client:
@@ -193,8 +179,8 @@ def handle_image(event):
             )
             _reply(event.reply_token, reply_text)
 
-    except Exception:
-        logging.exception("❌ Image processing error")
+    except Exception as e:
+        logging.exception(f"❌ Image processing error: {e}")
         _reply(event.reply_token, "❌ 画像処理に失敗しました。再送信してください。")
     finally:
         if image_path and os.path.exists(image_path):
@@ -208,7 +194,6 @@ def handle_text(event):
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
         try:
-            # 名前変更コマンド
             if text == "名前変更":
                 supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
                 messaging_api.reply_message(ReplyMessageRequest(
@@ -217,13 +202,12 @@ def handle_text(event):
                 ))
                 return
 
-            # その他
             messaging_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text="⚠️ このメッセージは処理対象外です。")]
             ))
-        except Exception:
-            logging.exception("❌ テキスト処理エラー")
+        except Exception as e:
+            logging.exception(f"❌ テキスト処理エラー: {e}")
             messaging_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text="❌ エラーが発生しました。もう一度お試しください。")]

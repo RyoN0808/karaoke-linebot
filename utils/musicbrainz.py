@@ -17,7 +17,7 @@ def search_artist_in_musicbrainz(artist_name: str):
         "fmt": "json"
     }
     headers = {
-        "User-Agent": "KaraokeScoreApp/1.0 (your-email@example.com)"
+        "User-Agent": "KaraokeScoreApp/1.0 (ryo.nakada00.tech@gmail.com)"
     }
 
     response = requests.get(f"{MUSICBRAINZ_BASE_URL}/artist/", params=params, headers=headers)
@@ -43,7 +43,7 @@ def search_artist_in_musicbrainz(artist_name: str):
         "name_raw": artist_name,
         "name_normalized": name_normalized,
         "genre_tags": genre_tags
-    }).execute()
+    }, on_conflict=["musicbrainz_id"]).execute()
 
     return {
         "musicbrainz_id": musicbrainz_id,
