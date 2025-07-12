@@ -25,12 +25,19 @@ from utils.gpt_parser import parse_text_with_gpt
 from utils.richmenu import create_and_link_rich_menu
 from utils.ocr_utils import _extract_score, validate_score_range
 from utils.musicbrainz import search_artist_in_musicbrainz
+from utils.correction import is_correction_trigger
+from utils.correction_ui import (
+    send_correction_form,
+    set_temp_value,
+    get_temp_value,
+    clear_temp_value
+)
 
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
 load_dotenv(dotenv_path=env_file)
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
+line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 # --- Flask アプリケーション ---
 app = Flask(__name__)
 app.register_blueprint(login_bp)
@@ -183,6 +190,7 @@ def handle_image(event):
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
+# --- テキストメッセージ処理（修正対応済み） ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     user_id = event.source.user_id
@@ -221,25 +229,26 @@ def handle_text(event):
             return
 
         # ----------------------
-        # 修正メニュー表示
+        # 修正メニュー表示（Flex形式）
         # ----------------------
-        if is_correction_command(text):
-            clear_user_correction_step(user_id)
-            line_bot_api.reply_message(event.reply_token, get_correction_menu())
+        if is_correction_trigger(text):
+            clear_temp_value(user_id)
+            send_correction_form(event.reply_token, line_bot_api)
             return
 
         # ----------------------
         # 修正項目選択
         # ----------------------
-        if is_correction_field_selection(text):
-            set_user_correction_step(user_id, text)
+        if text in ["スコア", "曲名", "アーティスト", "コメント"]:
+            set_temp_value(user_id, "field", text)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
             return
 
         # ----------------------
-        # 修正値の入力と反映
+        # 修正値の受け取り
         # ----------------------
-        field = get_user_correction_step(user_id)
+        temp = get_temp_value(user_id)
+        field = temp.get("field")
         if field:
             value = text
             if field == "スコア":
@@ -250,20 +259,39 @@ def handle_text(event):
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
                     return
 
+            set_temp_value(user_id, field, value)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ {field} を一時保存しました。他の項目も修正できます。「修正完了」で確定します。"))
+            return
+
+        # ----------------------
+        # 修正完了 → Supabase反映
+        # ----------------------
+        if text == "修正完了":
+            temp = get_temp_value(user_id)
             latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
             if latest.data:
                 score_id = latest.data[0]["id"]
-                supabase.table("scores").update({get_supabase_field(field): value}).eq("id", score_id).execute()
+                update_data = {}
+                if "スコア" in temp:
+                    update_data["score"] = temp["スコア"]
+                if "曲名" in temp:
+                    update_data["song_name"] = temp["曲名"]
+                if "アーティスト" in temp:
+                    update_data["artist_name"] = temp["アーティスト"]
+                if "コメント" in temp:
+                    update_data["comment"] = temp["コメント"]
 
+                supabase.table("scores").update(update_data).eq("id", score_id).execute()
                 updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
-                clear_user_correction_step(user_id)
+                clear_temp_value(user_id)
 
                 updated_data = updated.data
                 msg = (
                     f"✅ 修正完了！\n"
                     f"点数: {updated_data.get('score') or '---'}\n"
                     f"曲名: {updated_data.get('song_name') or '---'}\n"
-                    f"アーティスト: {updated_data.get('artist_name') or '---'}"
+                    f"アーティスト: {updated_data.get('artist_name') or '---'}\n"
+                    f"コメント: {updated_data.get('comment') or '---'}"
                 )
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
                 return
@@ -272,11 +300,11 @@ def handle_text(event):
         logging.exception("❌ テキスト処理中にエラーが発生しました")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ エラーが発生しました。"))
 
+# --- シンプルな返信用ユーティリティ関数 ---
 def _reply(token, text):
     with ApiClient(configuration) as api_client:
         MessagingApi(api_client).reply_message(
             ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)])
         )
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)), debug=DEBUG)
