@@ -83,7 +83,7 @@ def handle_follow(event):
         messaging_api = MessagingApi(api_client)
         profile = messaging_api.get_profile(user_id)
         name = profile.display_name or "unknown"
-        handle_user_onboarding(user_id, name, event.reply_token)
+        handle_user_onboarding(user_id, name, event.reply_token, messaging_api)
 
 @handler.add(MessageEvent)
 def handle_event(event):
@@ -106,19 +106,16 @@ def handle_image(event):
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
-        # 画像取得
         content = line_bot_api_v2.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
             for chunk in content.iter_content():
                 f.write(chunk)
 
-        # OCR解析
         client = vision.ImageAnnotatorClient()
         with open(image_path, "rb") as f:
             texts = client.text_detection(image=vision.Image(content=f.read())).text_annotations
 
-        # スコア・曲名・アーティスト名抽出
         score = _extract_score(texts)
         parsed = parse_text_with_gpt(texts[0].description if texts else "")
         parsed["score"] = score
@@ -131,8 +128,6 @@ def handle_image(event):
             return
 
         now_iso = datetime.utcnow().isoformat()
-
-        # --- MusicBrainz API でアーティスト情報取得 ---
         artist_name = parsed.get("artist_name")
         mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
 
@@ -140,7 +135,6 @@ def handle_image(event):
         artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
         genre_tags = mb_result.get("genre_tags") if mb_result else []
 
-        # ユーザー情報更新
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
             profile = messaging_api.get_profile(user_id)
@@ -155,7 +149,6 @@ def handle_image(event):
                 "last_score_at": now_iso
             }).execute()
 
-            # スコア登録（MusicBrainz結果含む）
             supabase.table("scores").insert({
                 "user_id": user_id,
                 "score": score,
@@ -168,7 +161,6 @@ def handle_image(event):
                 "created_at": now_iso
             }).execute()
 
-            # 成績返信
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
                 f"✅ スコア登録完了！\n"
@@ -186,7 +178,6 @@ def handle_image(event):
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
-# --- テキスト処理 ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
     user_id = event.source.user_id
@@ -213,13 +204,11 @@ def handle_text(event):
                 messages=[TextMessage(text="❌ エラーが発生しました。もう一度お試しください。")]
             ))
 
-# --- ヘルパー ---
 def _reply(token, text):
     with ApiClient(configuration) as api_client:
         MessagingApi(api_client).reply_message(
             ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)])
         )
 
-# --- エントリーポイント ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)), debug=DEBUG)
