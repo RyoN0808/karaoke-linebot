@@ -24,7 +24,7 @@ from utils.onboarding import handle_user_onboarding
 from utils.gpt_parser import parse_text_with_gpt
 from utils.richmenu import create_and_link_rich_menu
 from utils.ocr_utils import _extract_score, validate_score_range
-from utils.handle_artist import register_artist_if_needed
+from utils.musicbrainz import search_artist_in_musicbrainz
 
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
@@ -98,7 +98,7 @@ def handle_event(event):
     elif isinstance(msg, TextMessageContent):
         handle_text(event)
 
-# --- 画像処理（アーティスト登録統合） ---
+# --- 画像処理（MusicBrainz連携統合版） ---
 def handle_image(event):
     image_path = None
     try:
@@ -133,12 +133,12 @@ def handle_image(event):
             return
 
         now_iso = datetime.utcnow().isoformat()
-        artist_name_raw = parsed.get("artist_name")
-        artist_record = register_artist_if_needed(artist_name_raw) if artist_name_raw else {}
+        artist_name = parsed.get("artist_name")
+        mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
 
-        artist_name_normalized = artist_record.get("name_normalized")
-        musicbrainz_id = artist_record.get("musicbrainz_id")
-        genre_tags = artist_record.get("genre_tags")
+        musicbrainz_id = mb_result.get("musicbrainz_id") if mb_result else None
+        artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
+        genre_tags = mb_result.get("genre_tags") if mb_result else []
 
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
@@ -158,7 +158,7 @@ def handle_image(event):
                 "user_id": user_id,
                 "score": score,
                 "song_name": parsed.get("song_name"),
-                "artist_name": artist_name_raw,
+                "artist_name": artist_name,
                 "artist_name_normalized": artist_name_normalized,
                 "musicbrainz_id": musicbrainz_id,
                 "genre_tags": genre_tags,
@@ -171,7 +171,7 @@ def handle_image(event):
                 f"✅ スコア登録完了！\n"
                 f"点数: {score}\n"
                 f"曲名: {parsed.get('song_name') or '---'}\n"
-                f"アーティスト: {artist_name_normalized or artist_name_raw or '---'}\n\n"
+                f"アーティスト: {artist_name_normalized or artist_name or '---'}\n\n"
                 f"{stats}"
             )
             _reply(event.reply_token, reply_text)
