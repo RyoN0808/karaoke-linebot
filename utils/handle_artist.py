@@ -4,15 +4,20 @@ from supabase_client import supabase
 from utils.musicbrainz import search_artist_in_musicbrainz
 
 def register_artist_if_needed(artist_name: str):
-    """アーティストがSupabaseに存在しなければ検索＆登録する"""
+    from supabase import Client  # 念のため明示
     for attempt in range(3):
         try:
-            # 🔍 name_raw で既存チェック
+            # クエリ発行
             resp = supabase.table("artists").select("*").eq("name_raw", artist_name).maybe_single().execute()
+
+            # クエリ失敗チェック
+            if not resp or not hasattr(resp, "data"):
+                raise ValueError("no data returned")
+
             if resp.data:
                 return resp.data
 
-            # 📡 MusicBrainzで詳細取得
+            # 通信成功だが該当なし → MusicBrainz APIへ
             mb_data = search_artist_in_musicbrainz(artist_name)
             if mb_data:
                 data = {
@@ -22,12 +27,9 @@ def register_artist_if_needed(artist_name: str):
                     "genre_tags": mb_data["genre_tags"]
                 }
             else:
-                # fallback（通信失敗や見つからない場合）
-                data = {
-                    "name_raw": artist_name
-                }
+                data = {"name_raw": artist_name}
 
-            # Supabaseにinsert
+            # Insert
             inserted = supabase.table("artists").insert(data).execute()
             return inserted.data[0] if inserted.data else data
 
