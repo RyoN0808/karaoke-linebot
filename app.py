@@ -37,7 +37,6 @@ from utils.correction_ui import (
 env_file = os.getenv("ENV_FILE", ".env.dev")
 load_dotenv(dotenv_path=env_file)
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 # --- Flask アプリケーション ---
 app = Flask(__name__)
 app.register_blueprint(login_bp)
@@ -190,117 +189,140 @@ def handle_image(event):
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
-# --- テキストメッセージ処理（修正対応済み） ---
-@handler.add(MessageEvent, message=TextMessage)
+# --- テキスト処理 ---
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
+    from linebot.v3.messaging.models import TextMessage as V3TextMessage
+    from supabase_client import supabase
+    from utils.ocr_utils import (
+        is_correction_command, get_correction_menu,
+        is_correction_field_selection, set_user_correction_step,
+        get_user_correction_step, clear_user_correction_step,
+        validate_score_range
+    )
+
     user_id = event.source.user_id
     text = event.message.text.strip()
 
-    try:
-        # ----------------------
-        # 名前変更（開始）
-        # ----------------------
-        if text == "名前変更":
-            supabase.table("name_change_requests").upsert({"user_id": user_id, "waiting": True}).execute()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 新しい名前を入力してください"))
-            return
+    with ApiClient(configuration) as api_client:
+        messaging_api = MessagingApi(api_client)
 
-        # ----------------------
-        # 名前変更（確定）
-        # ----------------------
-        name_req = supabase.table("name_change_requests").select("*").eq("user_id", user_id).maybe_single().execute()
-        if name_req and name_req.data and name_req.data.get("waiting"):
-            new_name = text
-            supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
-            supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 名前を「{new_name}」に変更しました！"))
-            return
-
-        # ----------------------
-        # 成績確認
-        # ----------------------
-        if text == "成績確認":
-            try:
-                stats_msg = build_user_stats_message(user_id)
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=stats_msg))
-            except Exception:
-                logging.exception("❌ 成績確認の生成に失敗しました")
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 成績情報の取得に失敗しました。"))
-            return
-
-        # ----------------------
-        # 修正メニュー表示（Flex形式）
-        # ----------------------
-        if is_correction_trigger(text):
-            clear_temp_value(user_id)
-            send_correction_form(event.reply_token, line_bot_api)
-            return
-
-        # ----------------------
-        # 修正項目選択
-        # ----------------------
-        if text in ["スコア", "曲名", "アーティスト", "コメント"]:
-            set_temp_value(user_id, "field", text)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新しい {text} を入力してください"))
-            return
-
-        # ----------------------
-        # 修正値の受け取り
-        # ----------------------
-        temp = get_temp_value(user_id)
-        field = temp.get("field")
-        if field:
-            value = text
-            if field == "スコア":
-                value = text.translate(str.maketrans("０１２３４５６７８９．", "0123456789."))
-                try:
-                    value = float(value)
-                except ValueError:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 数値として認識できませんでした。半角数字で入力してください。"))
-                    return
-
-            set_temp_value(user_id, field, value)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ {field} を一時保存しました。他の項目も修正できます。「修正完了」で確定します。"))
-            return
-
-        # ----------------------
-        # 修正完了 → Supabase反映
-        # ----------------------
-        if text == "修正完了":
-            temp = get_temp_value(user_id)
-            latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
-            if latest.data:
-                score_id = latest.data[0]["id"]
-                update_data = {}
-                if "スコア" in temp:
-                    update_data["score"] = temp["スコア"]
-                if "曲名" in temp:
-                    update_data["song_name"] = temp["曲名"]
-                if "アーティスト" in temp:
-                    update_data["artist_name"] = temp["アーティスト"]
-                if "コメント" in temp:
-                    update_data["comment"] = temp["コメント"]
-
-                supabase.table("scores").update(update_data).eq("id", score_id).execute()
-                updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
-                clear_temp_value(user_id)
-
-                updated_data = updated.data
-                msg = (
-                    f"✅ 修正完了！\n"
-                    f"点数: {updated_data.get('score') or '---'}\n"
-                    f"曲名: {updated_data.get('song_name') or '---'}\n"
-                    f"アーティスト: {updated_data.get('artist_name') or '---'}\n"
-                    f"コメント: {updated_data.get('comment') or '---'}"
-                )
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+        try:
+            # 名前変更開始
+            if text == "名前変更":
+                supabase.table("name_change_requests").upsert({
+                    "user_id": user_id,
+                    "waiting": True
+                }).execute()
+                messaging_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[V3TextMessage(text="📝 新しい名前を入力してください")]
+                ))
                 return
 
-    except Exception:
-        logging.exception("❌ テキスト処理中にエラーが発生しました")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ エラーが発生しました。"))
+            # 名前変更確定
+            name_req = supabase.table("name_change_requests").select("*").eq("user_id", user_id).maybe_single().execute()
+            if name_req and name_req.data and name_req.data.get("waiting"):
+                new_name = text
+                supabase.table("users").update({"name": new_name}).eq("id", user_id).execute()
+                supabase.table("name_change_requests").delete().eq("user_id", user_id).execute()
+                messaging_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[V3TextMessage(text=f"✅ 名前を「{new_name}」に変更しました！")]
+                ))
+                return
 
-# --- シンプルな返信用ユーティリティ関数 ---
+            # 成績確認
+            if text == "成績確認":
+                try:
+                    stats_msg = build_user_stats_message(user_id)
+                    messaging_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[V3TextMessage(text=stats_msg)]
+                    ))
+                except Exception:
+                    logging.exception("❌ 成績確認の生成に失敗しました")
+                    messaging_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[V3TextMessage(text="⚠️ 成績情報の取得に失敗しました。")]
+                    ))
+                return
+
+            # 修正メニュー表示
+            if is_correction_command(text):
+                clear_user_correction_step(user_id)
+                messaging_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[get_correction_menu()]
+                ))
+                return
+
+            # 修正項目選択
+            if is_correction_field_selection(text):
+                set_user_correction_step(user_id, text)
+                messaging_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[V3TextMessage(text=f"📝 新しい {text} を入力してください")]
+                ))
+                return
+
+            # 修正入力反映
+            field = get_user_correction_step(user_id)
+            if field:
+                value = text
+                if field == "スコア":
+                    try:
+                        value = float(text.replace("．", ".").replace("。", ".").replace(",", "."))
+                        if not validate_score_range(value):
+                            messaging_api.reply_message(ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[V3TextMessage(text="⚠️ スコアは30.000以上100.000未満で入力してください。")]
+                            ))
+                            return
+                    except ValueError:
+                        messaging_api.reply_message(ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[V3TextMessage(text="⚠️ スコアが数値として認識できませんでした。")]
+                        ))
+                        return
+
+                latest = supabase.table("scores").select("id").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+                if latest.data:
+                    score_id = latest.data[0]["id"]
+                    supabase.table("scores").update({
+                        get_supabase_field(field): value
+                    }).eq("id", score_id).execute()
+
+                    updated = supabase.table("scores").select("*").eq("id", score_id).single().execute()
+                    clear_user_correction_step(user_id)
+
+                    data = updated.data or {}
+                    msg = (
+                        f"✅ 修正完了！\n"
+                        f"点数: {data.get('score') or '---'}\n"
+                        f"曲名: {data.get('song_name') or '---'}\n"
+                        f"アーティスト: {data.get('artist_name') or '---'}"
+                    )
+                    messaging_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[V3TextMessage(text=msg)]
+                    ))
+                    return
+
+            # 処理対象外
+            messaging_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[V3TextMessage(text="⚠️ このメッセージは処理対象外です。")]
+            ))
+
+        except Exception:
+            logging.exception("❌ テキスト処理エラー")
+            messaging_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[V3TextMessage(text="❌ エラーが発生しました。もう一度お試しください。")]
+            ))
+
+# --- ヘルパー ---
 def _reply(token, text):
     with ApiClient(configuration) as api_client:
         MessagingApi(api_client).reply_message(
