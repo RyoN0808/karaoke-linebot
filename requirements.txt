@@ -61,3 +61,4 @@ opencv-python-headless
 Pillow
 openai
 python-jose==3.5.0
+flask-cors
