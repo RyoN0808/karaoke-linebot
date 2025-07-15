@@ -44,6 +44,8 @@ app.register_blueprint(login_bp)
 app.register_blueprint(api_bp)
 app.register_blueprint(scores_bp)
 
+
+
 # --- ロギング設定 ---
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO,
