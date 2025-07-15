@@ -14,15 +14,58 @@ LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  
 
-# === POST callback（クライアントからコードを受け取る） ===
+# === POST callback（クライアントからコードを受け取る）===
+# ❗️ こちらが唯一の正しい /callback エンドポイントです
 @login_bp.route("/callback", methods=["POST", "OPTIONS"])
 def login_callback():
     if request.method == "OPTIONS":
         return '', 200
 
     data = request.get_json()
+    code = data.get("code")
     print("LINEログインcallbackデータ:", data)
-    return jsonify({"message": "OK"}), 200
+
+    if not code:
+        return "No code provided", 400
+
+    # トークン発行とユーザー情報取得のロジック
+    token_url = "https://api.line.me/oauth2/v2.1/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": LINE_REDIRECT_URI,
+        "client_id": LINE_CLIENT_ID,
+        "client_secret": LINE_CHANNEL_SECRET
+    }
+
+    token_response = requests.post(token_url, headers=headers, data=token_data)
+    print("token_response status:", token_response.status_code)
+    print("token_response json:", token_response.json())
+
+    if token_response.status_code != 200:
+        return f"Failed to get token: {token_response.text}", 400
+
+    tokens = token_response.json()
+    access_token = tokens.get("access_token")
+    id_token = tokens.get("id_token")
+
+    try:
+        verify_access_token(access_token)
+    except Exception as e:
+        return f"Access token verify failed: {str(e)}", 400
+
+    try:
+        user_info = verify_id_token(id_token)
+    except Exception as e:
+        return str(e), 400
+
+    # Next.js側が必要としているsubを含んだレスポンスを返します
+    return jsonify({
+        "message": "LINE IDトークン検証成功",
+        "sub": user_info.get("sub"),
+        "user_info": user_info
+    })
 
 # === client_assertion 生成（HS256）===
 def generate_client_assertion():
@@ -73,47 +116,3 @@ def login_line():
         f"&scope=profile%20openid"
     )
     return redirect(line_auth_url)
-
-# === コールバック処理（LINEからのredirectを受け取る） ===
-@login_bp.route("/line/callback")
-def line_callback():
-    code = request.args.get("code")
-    if not code:
-        return "No code provided", 400
-
-    token_url = "https://api.line.me/oauth2/v2.1/token"
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": LINE_REDIRECT_URI,
-        "client_id": LINE_CLIENT_ID,
-        "client_secret": LINE_CHANNEL_SECRET
-    }
-
-    token_response = requests.post(token_url, headers=headers, data=data)
-    print("token_response status:", token_response.status_code)
-    print("token_response json:", token_response.json())
-
-    if token_response.status_code != 200:
-        return f"Failed to get token: {token_response.text}", 400
-
-    tokens = token_response.json()
-    access_token = tokens.get("access_token")
-    id_token = tokens.get("id_token")
-
-    try:
-        verify_access_token(access_token)
-    except Exception as e:
-        return f"Access token verify failed: {str(e)}", 400
-
-    try:
-        user_info = verify_id_token(id_token)
-    except Exception as e:
-        return str(e), 400
-
-    return jsonify({
-        "message": "LINE IDトークン検証成功",
-        "sub": user_info.get("sub"),  # ←ここが Next.js 側で必要な `sub`
-        "user_info": user_info
-    })
