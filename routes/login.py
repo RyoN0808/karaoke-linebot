@@ -8,7 +8,10 @@ from flask import current_app
 
 # === 0. Blueprint 定義 + CORS適用 ===
 login_bp = Blueprint("login", __name__, url_prefix="/login")
-CORS(login_bp, origins="*", supports_credentials=True)  # login_bp に対して CORS を適用
+CORS(login_bp, origins="*", supports_credentials=True)
+
+@login_bp.route("/callback", methods=["POST", "OPTIONS"])  # ✅ OK！
+
 
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
