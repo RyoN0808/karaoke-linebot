@@ -1,20 +1,30 @@
-# routes/login.py
-
 import os
 import time
 import requests
 from flask import Blueprint, request, redirect, jsonify
+from flask_cors import CORS
 from jose import jwt as jose_jwt
 
-# === 0. Blueprint 定義 ===
+# === 0. Blueprint 定義 + CORS適用 ===
 login_bp = Blueprint("login", __name__, url_prefix="/login")
+CORS(login_bp, origins="*", supports_credentials=True)  # login_bp に対して CORS を適用
 
 # === 1. 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
-LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  
+LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  # HS256 の secret
 
-# === 2. client_assertion 生成（HS256）===
+# === 2. POST callback (例: Webhookなど) ===
+@login_bp.route("/callback", methods=["POST", "OPTIONS"])
+def login_callback():
+    if request.method == "OPTIONS":
+        return '', 200
+
+    data = request.get_json()
+    print("LINEログインcallbackデータ:", data)
+    return jsonify({"message": "OK"}), 200
+
+# === 3. client_assertion 生成（HS256）===
 def generate_client_assertion():
     now = int(time.time())
     payload = {
@@ -26,7 +36,7 @@ def generate_client_assertion():
     token = jose_jwt.encode(payload, LINE_CHANNEL_SECRET, algorithm="HS256")
     return token
 
-# === 3. access_token verify ===
+# === 4. access_token verify ===
 def verify_access_token(access_token: str):
     verify_url = "https://api.line.me/oauth2/v2.1/verify"
     params = {"access_token": access_token}
@@ -37,7 +47,7 @@ def verify_access_token(access_token: str):
         raise Exception(f"Access token invalid: {response.text}")
     return response.json()
 
-# === 4. IDトークン検証 ===
+# === 5. IDトークン検証 ===
 def verify_id_token(id_token: str):
     try:
         user_info = jose_jwt.decode(
@@ -51,7 +61,7 @@ def verify_id_token(id_token: str):
     except Exception as e:
         raise Exception(f"IDトークン検証失敗: {str(e)}")
 
-# === 5. ログイン開始エンドポイント ===
+# === 6. ログイン開始エンドポイント ===
 @login_bp.route("/line")
 def login_line():
     line_auth_url = (
@@ -59,12 +69,12 @@ def login_line():
         f"?response_type=code"
         f"&client_id={LINE_CLIENT_ID}"
         f"&redirect_uri={LINE_REDIRECT_URI}"
-        f"&state=test_state"  # TODO: CSRF対策でランダム生成する
+        f"&state=test_state"  # TODO: 本番ではCSRF対策としてランダムに
         f"&scope=profile%20openid"
     )
     return redirect(line_auth_url)
 
-# === 6. コールバックエンドポイント ===
+# === 7. コールバックエンドポイント ===
 @login_bp.route("/line/callback")
 def line_callback():
     code = request.args.get("code")
@@ -78,7 +88,7 @@ def line_callback():
         "code": code,
         "redirect_uri": LINE_REDIRECT_URI,
         "client_id": LINE_CLIENT_ID,
-        "client_secret": LINE_CHANNEL_SECRET  # HS256ではclient_secretを使う
+        "client_secret": LINE_CHANNEL_SECRET
     }
 
     token_response = requests.post(token_url, headers=headers, data=data)
@@ -92,13 +102,13 @@ def line_callback():
     access_token = tokens.get("access_token")
     id_token = tokens.get("id_token")
 
-    # === 7. access_token verify ===
+    # === access_token verify ===
     try:
         verify_access_token(access_token)
     except Exception as e:
         return f"Access token verify failed: {str(e)}", 400
 
-    # === 8. IDトークン検証 ===
+    # === IDトークン検証 ===
     try:
         user_info = verify_id_token(id_token)
     except Exception as e:
