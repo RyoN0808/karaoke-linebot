@@ -44,17 +44,15 @@ def build_user_stats_message(user_id: str) -> Optional[str]:
         f"・登録回数: {score_count} 回\n"
     )
 
-    # 次回レーティングの上下予測は動的に計算
-    next_up_score = rating_info.get("next_up_score")
+    user_info = supabase.table("users") \
+        .select("avg_score, avg_rating, next_up_score, next_down_score, score_count") \
+        .eq("id", user_id).single().execute()
+
+       next_up_score = user_info.data.get("next_up_score")
     if next_up_score is not None and next_up_score <= 100:
-        msg += f"・次の曲でレーティングを上がるには{next_up_score} 点が必要！\n"
+    msg += f"・次の曲でレーティングを上がるには{next_up_score} 点が必要！\n"
 
-    next_down_score = rating_info.get("next_down_score")
-    if (
-        rating_info.get("can_downgrade")
-        and next_down_score is not None
-        and 75 <= next_down_score <= 100
-    ):
-        msg += f"・おっと！次の曲が{next_down_score} 点未満でレーティングが下がってしまうかも！\n"
+       next_down_score = user_info.data.get("next_down_score")
+    if next_down_score is not None and 75 <= next_down_score <= 100:
+       msg += f"・おっと！次の曲が{next_down_score} 点未満でレーティングが下がってしまうかも！\n"
 
-    return msg
