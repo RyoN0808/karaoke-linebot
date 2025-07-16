@@ -99,7 +99,15 @@ def handle_follow(event):
             messaging_api=messaging_api,
             reply_token=event.reply_token
         )
-@handler.add(MessageEvent, message=ImageMessageContent)
+
+@handler.add(MessageEvent)
+def handle_event(event):
+    msg = event.message
+    if hasattr(msg, "content_provider") and msg.content_provider.type != "none":
+        handle_image(event)
+    elif isinstance(msg, TextMessageContent):
+        handle_text(event)
+
 def handle_image(event):
     image_path = None
     try:
@@ -148,8 +156,8 @@ def handle_image(event):
             profile = messaging_api.get_profile(user_id)
             user_name = profile.display_name or "unknown"
 
-        # Supabase: ユーザー更新/登録
-        u = supabase.table("users").select("score_count,user_code,id").eq("id", user_id).maybe_single().execute().data or {}
+        # Supabase: ユーザー情報更新・登録
+        u = supabase.table("users").select("score_count,user_code").eq("id", user_id).maybe_single().execute().data or {}
         supabase.table("users").upsert({
             "id": user_id,
             "name": user_name,
@@ -170,6 +178,8 @@ def handle_image(event):
             "comment": None,
             "created_at": now_iso
         }).execute()
+
+        # 平均スコア更新（UUID変換せず直接渡す）
         try:
             supabase.rpc("update_average_score", {"user_id": user_id}).execute()
         except Exception as e:
@@ -192,6 +202,7 @@ def handle_image(event):
     finally:
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
+
 
 # --- テキスト処理 ---
 @handler.add(MessageEvent, message=TextMessageContent)
