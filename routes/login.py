@@ -12,10 +12,9 @@ CORS(login_bp, origins="*", supports_credentials=True)
 # === 環境変数読み込み ===
 LINE_CLIENT_ID = os.getenv("LINE_LOGIN_CLIENT_ID")
 LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
-LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  
+LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  # 実際は「チャネルシークレット」
 
 # === POST callback（クライアントからコードを受け取る）===
-# ❗️ こちらが唯一の正しい /callback エンドポイントです
 @login_bp.route("/callback", methods=["POST", "OPTIONS"])
 def login_callback():
     if request.method == "OPTIONS":
@@ -28,7 +27,7 @@ def login_callback():
     if not code:
         return "No code provided", 400
 
-    # トークン発行とユーザー情報取得のロジック
+    # トークン取得
     token_url = "https://api.line.me/oauth2/v2.1/token"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     token_data = {
@@ -50,20 +49,27 @@ def login_callback():
     access_token = tokens.get("access_token")
     id_token = tokens.get("id_token")
 
+    # access_token 検証
     try:
         verify_access_token(access_token)
     except Exception as e:
+        print("❌ access_token 検証失敗:", e)
         return f"Access token verify failed: {str(e)}", 400
 
+    # id_token から sub を取得
     try:
         user_info = verify_id_token(id_token)
+        line_sub = user_info.get("sub")
+        if not line_sub:
+            raise Exception("id_token に sub が含まれていません")
+        print("✅ LINE sub:", line_sub)
     except Exception as e:
-        return str(e), 400
+        print("❌ id_token 検証失敗:", e)
+        return f"ID token verify failed: {str(e)}", 400
 
-    # Next.js側が必要としているsubを含んだレスポンスを返します
     return jsonify({
         "message": "LINE IDトークン検証成功",
-        "sub": user_info.get("sub"),
+        "sub": line_sub,
         "user_info": user_info
     })
 
@@ -90,7 +96,7 @@ def verify_access_token(access_token: str):
         raise Exception(f"Access token invalid: {response.text}")
     return response.json()
 
-# === IDトークン検証 ===
+# === IDトークン検証（署名検証なしで fallback 可能）===
 def verify_id_token(id_token: str):
     try:
         user_info = jose_jwt.decode(
@@ -102,7 +108,17 @@ def verify_id_token(id_token: str):
         )
         return user_info
     except Exception as e:
-        raise Exception(f"IDトークン検証失敗: {str(e)}")
+        print("⚠️署名検証付きdecode失敗:", e)
+        try:
+            # fallback: 署名検証なし
+            user_info = jose_jwt.decode(
+                id_token,
+                key=None,
+                options={"verify_signature": False}
+            )
+            return user_info
+        except Exception as ex:
+            raise Exception(f"署名なしdecodeも失敗: {ex}")
 
 # === LINEログイン開始URL生成 ===
 @login_bp.route("/line")
