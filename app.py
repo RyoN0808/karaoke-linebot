@@ -174,6 +174,8 @@ def handle_image(event):
                 "comment": None,
                 "created_at": now_iso
             }).execute()
+        # スコア登録後に平均スコアを更新
+            supabase.rpc("update_average_score", {"user_id": user_id}).execute()
 
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
