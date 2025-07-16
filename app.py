@@ -180,7 +180,7 @@ def handle_image(event):
         }).execute()
 
         # 平均スコア更新（UUID変換せず直接渡す）
-            try:
+        try:
             logging.info(f"📣 平均スコア更新を開始します（user_id={user_id}）")
             response = supabase.rpc("update_average_score", {"p_user_id": user_id}).execute()
             logging.info(f"✅ 平均スコア更新成功: {response}")
