@@ -116,7 +116,7 @@ def handle_image(event):
         history = user_send_history.setdefault(user_id, [])
         history[:] = [t for t in history if now_ts - t < 80]
         history.append(now_ts)
-        if len(history) > 2:
+        if len(history) > 5:
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
@@ -162,7 +162,7 @@ def handle_image(event):
                 "score_count": (u.get("score_count") or 0) + 1,
                 "last_score_at": now_iso
             }).execute()
-
+            
             supabase.table("scores").insert({
                 "user_id": user_id,
                 "score": score,
@@ -174,6 +174,7 @@ def handle_image(event):
                 "comment": None,
                 "created_at": now_iso
             }).execute()
+            supabase.rpc("update_average_score", {"user_id": user_id}).execute()
 
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
@@ -184,6 +185,8 @@ def handle_image(event):
                 f"{stats}"
             )
             _reply(event.reply_token, reply_text)
+            
+
 
     except Exception as e:
         logging.exception(f"❌ Image processing error: {e}")
