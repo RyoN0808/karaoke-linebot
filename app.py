@@ -109,6 +109,14 @@ def handle_event(event):
         handle_text(event)
 
 # --- 画像処理（MusicBrainz連携統合版） ---
+from uuid import UUID
+import os
+import time
+import logging
+from datetime import datetime
+from google.cloud import vision
+from linebot.v3.messaging import MessagingApi
+
 def handle_image(event):
     image_path = None
     try:
@@ -121,12 +129,14 @@ def handle_image(event):
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
+        # 画像取得
         content = line_bot_api_v2.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
             for chunk in content.iter_content():
                 f.write(chunk)
 
+        # OCR
         client = vision.ImageAnnotatorClient()
         with open(image_path, "rb") as f:
             texts = client.text_detection(image=vision.Image(content=f.read())).text_annotations
@@ -150,11 +160,13 @@ def handle_image(event):
         artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
         genre_tags = mb_result.get("genre_tags") if mb_result else []
 
+        # プロフィール取得
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
             profile = messaging_api.get_profile(user_id)
             user_name = profile.display_name or "unknown"
 
+            # ユーザー情報取得・更新
             u = supabase.table("users").select("score_count,user_code").eq("id", user_id).maybe_single().execute().data or {}
             supabase.table("users").upsert({
                 "id": user_id,
@@ -163,7 +175,8 @@ def handle_image(event):
                 "score_count": (u.get("score_count") or 0) + 1,
                 "last_score_at": now_iso
             }).execute()
-            
+
+            # スコア登録
             supabase.table("scores").insert({
                 "user_id": user_id,
                 "score": score,
@@ -175,14 +188,17 @@ def handle_image(event):
                 "comment": None,
                 "created_at": now_iso
             }).execute()
-            try:
-            uuid_user_id = str(UUID(user_id))
-            except ValueError:
-            raise ValueError(f"Invalid UUID format: {user_id}")
-            supabase.rpc("update_average_score", {"user_id": uuid_user_id}).execute()
-            
-            
 
+            # 平均スコア更新 RPC 呼び出し（UUID変換）
+            try:
+                uuid_user_id = str(UUID(user_id))
+                supabase.rpc("update_average_score", {"user_id": uuid_user_id}).execute()
+            except ValueError:
+                logging.error(f"❌ UUID変換失敗: {user_id}")
+            except Exception as e:
+                logging.error(f"❌ RPC呼び出し失敗: {e}")
+
+            # ステータス返信
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
                 f"✅ スコア登録完了！\n"
@@ -192,12 +208,11 @@ def handle_image(event):
                 f"{stats}"
             )
             _reply(event.reply_token, reply_text)
-            
-
 
     except Exception as e:
         logging.exception(f"❌ Image processing error: {e}")
         _reply(event.reply_token, "❌ 画像処理に失敗しました。再送信してください。")
+
     finally:
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
