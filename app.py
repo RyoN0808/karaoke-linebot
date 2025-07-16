@@ -100,23 +100,6 @@ def handle_follow(event):
             reply_token=event.reply_token
         )
 
-@handler.add(MessageEvent)
-def handle_event(event):
-    msg = event.message
-    if hasattr(msg, "content_provider") and msg.content_provider.type != "none":
-        handle_image(event)
-    elif isinstance(msg, TextMessageContent):
-        handle_text(event)
-
-# --- 画像処理（MusicBrainz連携統合版） ---
-from uuid import UUID
-import os
-import time
-import logging
-from datetime import datetime
-from google.cloud import vision
-from linebot.v3.messaging import MessagingApi
-
 def handle_image(event):
     image_path = None
     try:
@@ -129,7 +112,7 @@ def handle_image(event):
             _reply(event.reply_token, "⚠️ 一度に送れる画像は最大2枚までです。")
             return
 
-        # 画像取得
+        # 画像保存
         content = line_bot_api_v2.get_message_content(event.message.id)
         image_path = f"/tmp/{event.message.id}.jpg"
         with open(image_path, "wb") as f:
@@ -155,64 +138,57 @@ def handle_image(event):
         now_iso = datetime.utcnow().isoformat()
         artist_name = parsed.get("artist_name")
         mb_result = search_artist_in_musicbrainz(artist_name) if artist_name else None
-
         musicbrainz_id = mb_result.get("musicbrainz_id") if mb_result else None
         artist_name_normalized = mb_result.get("name_normalized") if mb_result else None
         genre_tags = mb_result.get("genre_tags") if mb_result else []
 
-        # プロフィール取得
+        # LINEユーザー情報取得
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
             profile = messaging_api.get_profile(user_id)
             user_name = profile.display_name or "unknown"
 
-            # ユーザー情報取得・更新
-            u = supabase.table("users").select("score_count,user_code").eq("id", user_id).maybe_single().execute().data or {}
-            supabase.table("users").upsert({
-                "id": user_id,
-                "name": user_name,
-                "user_code": u.get("user_code") or generate_unique_user_code(),
-                "score_count": (u.get("score_count") or 0) + 1,
-                "last_score_at": now_iso
-            }).execute()
+        # Supabase: ユーザー更新/登録
+        u = supabase.table("users").select("score_count,user_code,id").eq("id", user_id).maybe_single().execute().data or {}
+        supabase.table("users").upsert({
+            "id": user_id,
+            "name": user_name,
+            "user_code": u.get("user_code") or generate_unique_user_code(),
+            "score_count": (u.get("score_count") or 0) + 1,
+            "last_score_at": now_iso
+        }).execute()
 
-            # スコア登録
-            supabase.table("scores").insert({
-                "user_id": user_id,
-                "score": score,
-                "song_name": parsed.get("song_name"),
-                "artist_name": artist_name,
-                "artist_name_normalized": artist_name_normalized,
-                "musicbrainz_id": musicbrainz_id,
-                "genre_tags": genre_tags,
-                "comment": None,
-                "created_at": now_iso
-            }).execute()
+        # スコア登録
+        supabase.table("scores").insert({
+            "user_id": user_id,
+            "score": score,
+            "song_name": parsed.get("song_name"),
+            "artist_name": artist_name,
+            "artist_name_normalized": artist_name_normalized,
+            "musicbrainz_id": musicbrainz_id,
+            "genre_tags": genre_tags,
+            "comment": None,
+            "created_at": now_iso
+        }).execute()
 
-            # 平均スコア更新 RPC 呼び出し（UUID変換）
-            try:
-                uuid_user_id = str(UUID(user_id))
-                supabase.rpc("update_average_score", {"user_id": uuid_user_id}).execute()
-            except ValueError:
-                logging.error(f"❌ UUID変換失敗: {user_id}")
-            except Exception as e:
-                logging.error(f"❌ RPC呼び出し失敗: {e}")
-
-            # ステータス返信
-            stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
-            reply_text = (
-                f"✅ スコア登録完了！\n"
-                f"点数: {score}\n"
-                f"曲名: {parsed.get('song_name') or '---'}\n"
-                f"アーティスト: {artist_name_normalized or artist_name or '---'}\n\n"
-                f"{stats}"
-            )
-            _reply(event.reply_token, reply_text)
+        # 平均スコア更新（RPC呼び出し）
+        try:
+            # UUIDに変換（形式確認）
+           supabase.rpc("update_average_score", {"user_id": user_id}).execute()
+        # 成績メッセージ生成
+        stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
+        reply_text = (
+            f"✅ スコア登録完了！\n"
+            f"点数: {score}\n"
+            f"曲名: {parsed.get('song_name') or '---'}\n"
+            f"アーティスト: {artist_name_normalized or artist_name or '---'}\n\n"
+            f"{stats}"
+        )
+        _reply(event.reply_token, reply_text)
 
     except Exception as e:
         logging.exception(f"❌ Image processing error: {e}")
         _reply(event.reply_token, "❌ 画像処理に失敗しました。再送信してください。")
-
     finally:
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
