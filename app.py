@@ -170,11 +170,11 @@ def handle_image(event):
             "comment": None,
             "created_at": now_iso
         }).execute()
-
-        # 平均スコア更新（RPC呼び出し）
         try:
-            # UUIDに変換（形式確認）
-           supabase.rpc("update_average_score", {"user_id": user_id}).execute()
+            supabase.rpc("update_average_score", {"user_id": user_id}).execute()
+        except Exception as e:
+            logging.error(f"❌ 平均スコア更新に失敗: {e}")
+
         # 成績メッセージ生成
         stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
         reply_text = (
