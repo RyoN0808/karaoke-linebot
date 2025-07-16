@@ -181,7 +181,8 @@ def handle_image(event):
 
         # 平均スコア更新（UUID変換せず直接渡す）
         try:
-            supabase.rpc("update_average_score", {"user_id": user_id}).execute()
+            supabase.rpc("update_average_score", {"p_user_id": user_id})
+
         except Exception as e:
             logging.error(f"❌ 平均スコア更新に失敗: {e}")
 
