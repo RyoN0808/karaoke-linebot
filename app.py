@@ -17,6 +17,7 @@ from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
 from linebot.v3.messaging.models import ReplyMessageRequest, TextMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot import LineBotApi
+from uuid import UUID
 
 from utils.field_map import get_supabase_field
 from utils.user_code import generate_unique_user_code
@@ -174,7 +175,13 @@ def handle_image(event):
                 "comment": None,
                 "created_at": now_iso
             }).execute()
-            supabase.rpc("update_average_score", {"user_id": user_id}).execute()
+            try:
+            uuid_user_id = str(UUID(user_id))
+            except ValueError:
+            raise ValueError(f"Invalid UUID format: {user_id}")
+            supabase.rpc("update_average_score", {"user_id": uuid_user_id}).execute()
+            
+            
 
             stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
             reply_text = (
