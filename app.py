@@ -99,7 +99,7 @@ def handle_follow(event):
             messaging_api=messaging_api,
             reply_token=event.reply_token
         )
-
+@handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
     image_path = None
     try:
