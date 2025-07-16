@@ -180,12 +180,13 @@ def handle_image(event):
         }).execute()
 
         # 平均スコア更新（UUID変換せず直接渡す）
-        try:
+            try:
             logging.info(f"📣 平均スコア更新を開始します（user_id={user_id}）")
-            response = supabase.rpc("update_average_score", {"p_user_id": user_id})
+            response = supabase.rpc("update_average_score", {"p_user_id": user_id}).execute()
             logging.info(f"✅ 平均スコア更新成功: {response}")
         except Exception as e:
             logging.error(f"❌ 平均スコア更新に失敗: {e}")
+        
         # 成績メッセージ生成
         stats = build_user_stats_message(user_id) or "⚠️ 成績情報取得失敗"
         reply_text = (
