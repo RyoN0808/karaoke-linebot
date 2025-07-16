@@ -1,17 +1,17 @@
 from typing import Optional
 from supabase_client import supabase
 from utils.rating_predictor import predict_next_rating
-from utils.rating import get_rating_from_score
 from utils.constants import SCORE_EVAL_COUNT
 
 
 def build_user_stats_message(user_id: str) -> Optional[str]:
-    # スコア取得
+    # スコア取得（最新SCORE_EVAL_COUNT件）
     resp = supabase.table("scores") \
         .select("score, created_at") \
         .eq("user_id", user_id) \
         .order("created_at", desc=True) \
-        .limit(SCORE_EVAL_COUNT).execute()
+        .limit(SCORE_EVAL_COUNT) \
+        .execute()
 
     score_list = [s["score"] for s in resp.data if s.get("score") is not None]
     if not score_list:
@@ -19,23 +19,32 @@ def build_user_stats_message(user_id: str) -> Optional[str]:
 
     latest_score = score_list[0]
     max_score = max(score_list)
-    avg_score = round(sum(score_list) / len(score_list), 3) if len(score_list) >= 5 else None
-    rating_info = predict_next_rating(score_list) if avg_score is not None else {}
 
-    # ユーザー情報
-    user_info = supabase.table("users").select("score_count").eq("id", user_id).single().execute()
-    score_count = user_info.data["score_count"] if user_info.data else 0
+    # ユーザー情報（DBの avg_score, avg_rating, score_count を使用）
+    user_info = supabase.table("users") \
+        .select("avg_score, avg_rating, score_count") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+
+    avg_score = user_info.data.get("avg_score") if user_info.data else None
+    avg_rating = user_info.data.get("avg_rating") or "---"
+    score_count = user_info.data.get("score_count") or 0
+
+    # レーティング予測情報（Pythonで動的に計算）
+    rating_info = predict_next_rating(score_list) if avg_score is not None else {}
 
     # 成績メッセージ構築
     msg = (
         "\U0001F4CA あなたの成績\n"
-        f"・レーティング: {rating_info.get('current_rating', '---')}\n"
+        f"・レーティング: {avg_rating}\n"
         f"・平均スコア: {avg_score or '---'}\n"
         f"・最新スコア: {latest_score or '---'}\n"
         f"・最高スコア: {max_score or '---'}\n"
         f"・登録回数: {score_count} 回\n"
     )
 
+    # 次回レーティングの上下予測は動的に計算
     next_up_score = rating_info.get("next_up_score")
     if next_up_score is not None and next_up_score <= 100:
         msg += f"・次の曲でレーティングを上がるには{next_up_score} 点が必要！\n"
