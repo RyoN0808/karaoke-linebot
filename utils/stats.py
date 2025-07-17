@@ -22,28 +22,27 @@ def build_user_stats_message(user_id: str) -> Optional[str]:
 
     # ユーザー情報（DBから取得）
     user_info = supabase.table("users") \
-        .select("avg_score, avg_rating, next_up_score, next_down_score, score_count") \
+        .select("average_score, average_rating, next_up_score, next_down_score, score_count") \
         .eq("id", user_id).single().execute()
 
-    avg_score = user_info.data.get("avg_score") if user_info.data else None
-    avg_rating = user_info.data.get("avg_rating") or "---"
+    average_score = user_info.data.get("average_score") if user_info.data else None
+    average_rating = user_info.data.get("average_rating") or "---"
     score_count = user_info.data.get("score_count") or 0
     next_up_score = user_info.data.get("next_up_score")
     next_down_score = user_info.data.get("next_down_score")
 
     # レーティング情報（動的な補足計算が必要なら）
-    rating_info = predict_next_rating(score_list) if avg_score is not None else {}
+    rating_info = predict_next_rating(score_list) if average_score is not None else {}
 
     # 成績メッセージ構築
     msg = (
         "\U0001F4CA あなたの成績\n"
-        f"・レーティング: {avg_rating}\n"
-        f"・平均スコア: {avg_score or '---'}\n"
+        f"・レーティング: {average_rating}\n"
+        f"・平均スコア: {average_score or '---'}\n"
         f"・最新スコア: {latest_score or '---'}\n"
         f"・最高スコア: {max_score or '---'}\n"
         f"・登録回数: {score_count} 回\n"
     )
-
     # レーティング変動予測（DBの next_up_score / next_down_score を使用）
     if next_up_score is not None and next_up_score <= 100:
         msg += f"・次の曲でレーティングを上がるには {next_up_score} 点が必要！\n"

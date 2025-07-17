@@ -28,8 +28,8 @@ RANK_THRESHOLDS = {
 # ランクの順序（下から上）
 RANK_ORDER = ["C", "B", "A", "S", "SA", "SS"]
 
-def get_rank(avg_score: float) -> str:
-    return get_rating_from_score(avg_score)
+def get_rank(average_score: float) -> str:
+    return get_rating_from_score(average_score)
 
 def get_threshold(rank: str) -> float:
     return RANK_THRESHOLDS.get(rank, 0)
