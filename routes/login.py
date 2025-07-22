@@ -6,7 +6,7 @@ from flask_cors import CORS
 from jose import jwt as jose_jwt
 
 # === Blueprint 定義 ===
-login_bp = Blueprint("login", __name__, url_prefix="/login")
+login_bp = Blueprint("login", __name__, url_prefix="/login/line" )
 CORS(login_bp, origins="*", supports_credentials=True)
 
 # === 環境変数読み込み ===
@@ -15,7 +15,7 @@ LINE_REDIRECT_URI = os.getenv("LINE_LOGIN_REDIRECT_URI")
 LINE_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CLIENT_SECRET")  
 
 # === POST callback（クライアントからコードを受け取る）===
-# ❗️ こちらが唯一の正しい /callback エンドポイントです
+
 @login_bp.route("/callback", methods=["POST", "OPTIONS"])
 def login_callback():
     if request.method == "OPTIONS":
