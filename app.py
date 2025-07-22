@@ -6,11 +6,9 @@ from flask import Flask, request, abort
 from dotenv import load_dotenv
 from google.cloud import vision
 from supabase_client import supabase
-
 from routes.login import login_bp
 from routes.api import api_bp
 from routes.scores import scores_bp
-
 from linebot.v3 import WebhookHandler
 from linebot.v3.webhooks import MessageEvent, FollowEvent, TextMessageContent
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
@@ -18,7 +16,6 @@ from linebot.v3.messaging.models import ReplyMessageRequest, TextMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot import LineBotApi
 from uuid import UUID
-
 from utils.field_map import get_supabase_field
 from utils.user_code import generate_unique_user_code
 from utils.stats import build_user_stats_message
@@ -34,7 +31,7 @@ from utils.correction_ui import (
     get_temp_value,
     clear_temp_value
 )
-
+from flask_cors import CORS
 # --- 環境変数読み込み ---
 env_file = os.getenv("ENV_FILE", ".env.dev")
 load_dotenv(dotenv_path=env_file)
@@ -44,6 +41,7 @@ app = Flask(__name__)
 app.register_blueprint(login_bp)
 app.register_blueprint(api_bp)
 app.register_blueprint(scores_bp)
+CORS(app)
 
 
 
@@ -84,6 +82,7 @@ def webhook():
         logging.exception(f"❌ Webhook error: {e}")
         abort(400)
     return "OK"
+
 
 # --- イベント処理 ---
 @handler.add(FollowEvent)
