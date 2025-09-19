@@ -17,4 +17,8 @@ venv/
 /tmp/
 
 #credentials file
-credentials
+credentials*.pem
+*.key
+_secrets/
+.env
+service_account*.json
